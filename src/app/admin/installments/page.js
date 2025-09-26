@@ -1,0 +1,210 @@
+"use client";
+import Link from "next/link";
+import { useState, useEffect } from "react";
+
+export default function InstallmentsPage() {
+  const [installments, setInstallments] = useState([]);
+
+  useEffect(() => {
+    // Load installments from localStorage
+    const loadInstallments = () => {
+      const savedInstallments = localStorage.getItem('installments');
+      const existingSoldCars = JSON.parse(localStorage.getItem('soldCars') || '[]');
+      
+      if (savedInstallments) {
+        const allInstallments = JSON.parse(savedInstallments);
+        
+        // Remove installments that are now in sold list
+        const filteredInstallments = allInstallments.filter(installment => 
+          !existingSoldCars.some(soldCar => soldCar.id === installment.id)
+        );
+        
+        // Update localStorage if installments were removed
+        if (filteredInstallments.length !== allInstallments.length) {
+          localStorage.setItem('installments', JSON.stringify(filteredInstallments));
+        }
+        
+        setInstallments(filteredInstallments);
+      } else {
+        setInstallments([]);
+      }
+    };
+
+    loadInstallments();
+
+    // Listen for storage changes (when installments are added from other tabs or moved to sold list)
+    const handleStorageChange = (e) => {
+      if (e.key === 'installments' || e.key === 'soldCars') {
+        loadInstallments();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+
+  const handleLogout = () => {
+    // Clear any stored authentication data
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('userType');
+    
+    // Redirect to login page
+    window.location.href = '/admin/login';
+  };
+
+  return (
+    <div className="min-h-screen bg-cover bg-center bg-no-repeat bg-fixed" style={{ backgroundImage: "url('/View.png')" }}>
+      {/* Top Navigation Bar */}
+      <nav className="bg-black/80 backdrop-blur-md shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-14 sm:h-16">
+            <h1 className="text-xl sm:text-2xl font-semibold text-white">BKK KAUNG PYAE CAR SHOWROOM</h1>
+            <button
+              onClick={handleLogout}
+              className="bg-black/20 backdrop-blur-md text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg hover:bg-black/30 hover:text-red-500 text-base sm:text-lg font-medium border border-white/30 transition-all duration-200 cursor-pointer"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Secondary Navigation Bar */}
+      <nav className="bg-black/70 backdrop-blur-md shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-nowrap space-x-4 sm:space-x-8 h-12 sm:h-14 overflow-x-auto scrollbar-hide">
+            <Link href="/admin/dashboard" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Car List
+            </Link>
+            <Link href="/admin/installments" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-red-500 border-b-2 border-red-500 whitespace-nowrap flex-shrink-0">
+              Installments
+            </Link>
+            <Link href="/admin/installment-calculator" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Installment Calculator
+            </Link>
+            <Link href="/admin/sold-list" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Sold List
+            </Link>
+            <Link href="/admin/analysis" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Analysis
+            </Link>
+            <Link href="/admin/installment-analysis" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Installment Analysis
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto py-4 sm:py-6 px-2 sm:px-6 lg:px-8">
+        <div className="px-2 sm:px-4 py-4 sm:py-6 sm:px-0">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4">
+            <div>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">Installments Management</h2>
+              <p className="text-white/70 text-sm mt-1">
+                {installments.length} installment{installments.length !== 1 ? 's' : ''} found
+              </p>
+            </div>
+          </div>
+
+          {/* Installments Table */}
+          <div className="bg-black/20 backdrop-blur-2xl shadow overflow-hidden sm:rounded-md">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-600">
+                <thead className="bg-black/20 backdrop-blur-2xl">
+                  <tr>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      No.
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      License
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Brand
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Model
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Price
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Down Payment
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Monthly Payment
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-black/10 backdrop-blur-2xl divide-y divide-gray-600">
+                  {installments.length > 0 ? (
+                    installments.map((installment, index) => (
+                      <tr key={installment.id} className="hover:bg-black/30 backdrop-blur-2xl">
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {index + 1}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.licensePlate || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.carBrand || installment.brand || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.carModel || installment.model || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.customerName || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.downPayment ? `฿${parseInt(installment.downPayment).toLocaleString()}` : 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.monthlyPayment ? `฿${parseInt(installment.monthlyPayment).toLocaleString()}` : 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
+                          {installment.purchasedDate || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">
+                          <Link 
+                            href={`/admin/edit-installment/${installment.id}`} 
+                            onClick={(e) => e.stopPropagation()} // Prevent row click when clicking Edit button
+                            className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-red-500 font-medium border border-white/30 transition-all duration-200 cursor-pointer"
+                          >
+                            Edit
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="10" className="px-6 py-12 text-center text-white/70">
+                        No installments found. Add cars from the Add New Car page or create new installments here.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
