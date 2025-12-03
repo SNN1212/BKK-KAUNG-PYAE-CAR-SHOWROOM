@@ -18,16 +18,197 @@ export default function ProfitCalculator() {
   const [car, setCar] = useState(null);
   const [newExpense, setNewExpense] = useState({ detail: "", amount: "" });
 
-  // Mock car data - in real app this would come from API
+  const parseCurrency = (value) => {
+    if (!value) return 0;
+    if (typeof value === "number") return value;
+    return parseFloat(
+      value
+        .toString()
+        .replace(/[^\d.-]/g, "")
+    ) || 0;
+  };
+
+  // Load car information and any saved profit calculation from localStorage
   useEffect(() => {
-    const mockCars = [
-      { id: 1, carList: "001", licenseNo: "ABC-123", brand: "Toyota", model: "Camry", price: "฿25,000" },
-      { id: 2, carList: "002", licenseNo: "XYZ-789", brand: "Honda", model: "Civic", price: "฿22,000" },
-      { id: 3, carList: "003", licenseNo: "DEF-456", brand: "Ford", model: "Focus", price: "฿20,000" },
-    ];
-    
-    const foundCar = mockCars.find(c => c.id == carId);
-    setCar(foundCar);
+    if (!carId) return;
+
+    const loadCarData = async () => {
+      let foundCar = null;
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+      // Try to fetch from API first to get purchasePrice
+      if (API_BASE_URL) {
+        try {
+          const token = localStorage.getItem('token');
+          const headers = {};
+          
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(`${API_BASE_URL}/api/car/${carId}`, {
+            cache: "no-store",
+            headers: headers
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const apiCar = data.data || data;
+            
+            if (apiCar) {
+              // Use purchasePrice from API (the very first purchase price)
+              const purchasePrice = apiCar.purchasePrice || apiCar.priceToBuy || apiCar.originalPrice || apiCar.price;
+              
+              foundCar = {
+                ...apiCar,
+                purchasePrice: purchasePrice,
+                originalPrice: apiCar.originalPrice || apiCar.priceToBuy || purchasePrice,
+                price: apiCar.priceToSell || apiCar.price,
+                soldPrice: apiCar.soldPrice,
+                repairHistory: apiCar.repairs || apiCar.repairHistory || []
+              };
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching car from API:", error);
+        }
+      }
+
+      // Fallback to localStorage if API didn't return a car
+      if (!foundCar) {
+        try {
+          const savedCars = JSON.parse(localStorage.getItem("cars") || "[]");
+          const soldCars = JSON.parse(localStorage.getItem("soldCars") || "[]");
+          const allCars = [...savedCars, ...soldCars];
+
+          foundCar = allCars.find((c) => c?.id?.toString() === carId.toString());
+        } catch (error) {
+          console.error("Error loading cars from storage:", error);
+        }
+      }
+
+      if (!foundCar) {
+        // Fall back to default seed data so page still works for demo cars
+        const defaultCars = [
+          { id: 1, carList: "001", licenseNo: "ABC-123", brand: "Toyota", model: "Camry", price: "฿25,000" },
+          { id: 2, carList: "002", licenseNo: "XYZ-789", brand: "Honda", model: "Civic", price: "฿22,000" },
+          { id: 3, carList: "003", licenseNo: "DEF-456", brand: "Ford", model: "Focus", price: "฿20,000" },
+        ];
+        foundCar = defaultCars.find((c) => c.id.toString() === carId.toString()) || null;
+      }
+
+      setCar(foundCar);
+
+      // Helper function to convert repair history to expenses format
+      const convertRepairHistoryToExpenses = (repairHistory) => {
+        if (!repairHistory || !Array.isArray(repairHistory)) return [];
+        
+        return repairHistory
+          .filter(item => item !== null && item !== undefined)
+          .map((item, index) => {
+            // Handle API format: { description, cost, repairDate }
+            if (typeof item === 'object') {
+              const description = item.description || item.details || '';
+              const cost = item.cost !== undefined ? item.cost : item.amount;
+              const repairDate = item.repairDate || '';
+              
+              // Format description with date if available
+              let detailText = description;
+              if (repairDate) {
+                try {
+                  const date = new Date(repairDate);
+                  const formattedDate = date.toLocaleDateString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  });
+                  detailText = `${description} (${formattedDate})`;
+                } catch (e) {
+                  detailText = description;
+                }
+              }
+              
+              return {
+                id: Date.now() + index,
+                detail: detailText || 'Repair expense',
+                amount: cost !== undefined && cost !== null ? parseCurrency(cost).toString() : '0',
+                fromRepairHistory: true
+              };
+            }
+            
+            // Handle string format
+            if (typeof item === 'string') {
+              return {
+                id: Date.now() + index,
+                detail: item,
+                amount: '0',
+                fromRepairHistory: true
+              };
+            }
+            
+            return null;
+          })
+          .filter(item => item !== null);
+      };
+
+      // Prefill form with saved profit calculation if available
+      try {
+        const savedCalculations = JSON.parse(localStorage.getItem("profitCalculations") || "[]");
+        const existingCalculation = savedCalculations.find(
+          (calc) => calc.carId?.toString() === carId.toString()
+        );
+
+        if (existingCalculation) {
+          // Merge saved expenses with repair history (avoid duplicates)
+          const savedExpenses = existingCalculation.expenses || [];
+          const repairHistoryData = foundCar?.repairHistory || foundCar?.repairs || [];
+          const repairExpenses = convertRepairHistoryToExpenses(repairHistoryData);
+          
+          // Only add repair history expenses that aren't already in saved expenses
+          const mergedExpenses = [...savedExpenses];
+          repairExpenses.forEach(repairExp => {
+            const exists = savedExpenses.some(savedExp => 
+              savedExp.detail === repairExp.detail && 
+              savedExp.amount === repairExp.amount
+            );
+            if (!exists) {
+              mergedExpenses.push(repairExp);
+            }
+          });
+          
+          setFormData({
+            originalPrice: existingCalculation.originalPrice?.toString() || "",
+            retailedPrice: existingCalculation.retailedPrice?.toString() || "",
+            expenses: mergedExpenses,
+          });
+          return;
+        }
+      } catch (error) {
+        console.error("Error loading profit calculations:", error);
+      }
+
+      if (foundCar) {
+        // Use purchasePrice (the very first purchase price) as the original price
+        // Priority: purchasePrice > priceToBuy > originalPrice > price
+        const purchasePriceValue = foundCar.purchasePrice || 
+                                   foundCar.priceToBuy || 
+                                   foundCar.originalPrice || 
+                                   foundCar.price;
+        
+        // Convert repair history to expenses (check both repairHistory and repairs fields)
+        const repairHistoryData = foundCar.repairHistory || foundCar.repairs || [];
+        const repairExpenses = convertRepairHistoryToExpenses(repairHistoryData);
+        
+        setFormData((prev) => ({
+          ...prev,
+          originalPrice: parseCurrency(purchasePriceValue).toString(),
+          retailedPrice: foundCar.soldPrice ? parseCurrency(foundCar.soldPrice).toString() : "",
+          expenses: repairExpenses,
+        }));
+      }
+    };
+
+    loadCarData();
   }, [carId]);
 
   const handleInputChange = (e) => {
@@ -69,13 +250,13 @@ export default function ProfitCalculator() {
 
   // Calculate profit automatically when any field changes
   useEffect(() => {
-    const original = parseFloat(formData.originalPrice) || 0;
-    const retail = parseFloat(formData.retailedPrice) || 0;
+    const original = parseCurrency(formData.originalPrice);
+    const retail = parseCurrency(formData.retailedPrice);
     
     // Calculate total expense from expenses array
     let totalExpense = 0;
     formData.expenses.forEach(expense => {
-      totalExpense += parseFloat(expense.amount) || 0;
+      totalExpense += parseCurrency(expense.amount);
     });
 
     const calculatedProfit = retail - (original + totalExpense);
@@ -93,19 +274,31 @@ export default function ProfitCalculator() {
 
   const handleUpdateProfit = () => {
     if (!formData.originalPrice || !formData.retailedPrice) {
-      alert("Please fill in both Original Price and Selling Price to calculate profit.");
+      alert("Please fill in both Original Price and Sold Price to calculate profit.");
       return;
     }
+
+    if (!car) {
+      alert("Unable to load car information. Please make sure the car still exists in the inventory.");
+      return;
+    }
+
+    const originalPriceValue = parseCurrency(formData.originalPrice);
+    const retailPriceValue = parseCurrency(formData.retailedPrice);
+    const totalExpensesValue = formData.expenses.reduce(
+      (sum, expense) => sum + parseCurrency(expense.amount),
+      0
+    );
 
     // Save profit calculation data to localStorage
     const profitData = {
       carId: parseInt(carId),
-      originalPrice: parseFloat(formData.originalPrice),
-      retailedPrice: parseFloat(formData.retailedPrice),
+      originalPrice: originalPriceValue,
+      retailedPrice: retailPriceValue,
       expenses: formData.expenses,
-      totalExpenses: formData.expenses.reduce((sum, expense) => sum + (parseFloat(expense.amount) || 0), 0),
-      profit: profit,
-      profitPercentage: profitPercentage,
+      totalExpenses: totalExpensesValue,
+      profit: retailPriceValue - (originalPriceValue + totalExpensesValue),
+      profitPercentage: originalPriceValue > 0 ? ((retailPriceValue - (originalPriceValue + totalExpensesValue)) / originalPriceValue) * 100 : 0,
       lastUpdated: new Date().toLocaleDateString('en-GB')
     };
 
@@ -120,8 +313,83 @@ export default function ProfitCalculator() {
     
     // Save to localStorage
     localStorage.setItem('profitCalculations', JSON.stringify(updatedCalculations));
+
+    const numericCarId = parseInt(carId);
+    let inventoryCars = [];
+    let soldCars = [];
+    let inventoryCarEntry = null;
+    let existingSoldCarIndex = -1;
+
+    try {
+      inventoryCars = JSON.parse(localStorage.getItem('cars') || '[]');
+      inventoryCarEntry = inventoryCars.find(carItem => carItem?.id?.toString() === carId.toString()) || null;
+
+      soldCars = JSON.parse(localStorage.getItem('soldCars') || '[]');
+      existingSoldCarIndex = soldCars.findIndex(carItem => carItem?.id?.toString() === carId.toString());
+    } catch (error) {
+      console.error('Error loading cars for sale transfer:', error);
+    }
+
+    const baseCarData = inventoryCarEntry || soldCars[existingSoldCarIndex] || {
+      id: numericCarId,
+      carList: car?.carList || '',
+      licenseNo: car?.licenseNo || car?.licensePlate || '',
+      brand: car?.brand || (car?.carModel ? car.carModel.split(' ')[0] : ''),
+      model: car?.model || (car?.carModel ? car.carModel.split(' ').slice(1).join(' ') : ''),
+      engine: car?.engine || 'N/A',
+      color: car?.color || 'N/A',
+      wd: car?.wd || 'N/A',
+      gear: car?.gear || 'N/A',
+      price: car?.price || formatCurrency(originalPriceValue),
+      originalPrice: car?.originalPrice || formatCurrency(originalPriceValue),
+      carPhoto: car?.carPhoto || '/admin.png',
+      purchasedKilo: car?.purchasedKilo || '',
+    };
+
+    const soldCarEntry = {
+      ...baseCarData,
+      id: numericCarId,
+      price: baseCarData.price || formatCurrency(originalPriceValue),
+      soldDate: new Date().toLocaleDateString('en-GB'),
+      soldPrice: formatCurrency(retailPriceValue),
+      customerName: baseCarData.customerName || '',
+      phoneNumber: baseCarData.phoneNumber || '',
+      passportNumber: baseCarData.passportNumber || '',
+      transferCompleted: baseCarData.transferCompleted || false,
+      transferDate: baseCarData.transferDate || null,
+      originalPrice: formatCurrency(originalPriceValue),
+      totalExpenses: totalExpensesValue,
+      profit: profitData.profit,
+      expenses: formData.expenses,
+      profitLastUpdated: profitData.lastUpdated
+    };
+
+    // Remove car from inventory if it exists there
+    if (inventoryCarEntry) {
+      const filteredCars = inventoryCars.filter(carItem => carItem?.id?.toString() !== carId.toString());
+      localStorage.setItem('cars', JSON.stringify(filteredCars));
+    }
+
+    if (existingSoldCarIndex >= 0) {
+      soldCars[existingSoldCarIndex] = soldCarEntry;
+    } else {
+      soldCars.push(soldCarEntry);
+    }
+
+    localStorage.setItem('soldCars', JSON.stringify(soldCars));
+
+    setCar(soldCarEntry);
+
+    const carDisplay = `${soldCarEntry.brand || ''} ${soldCarEntry.model || ''}`.trim() || `Car ID ${carId}`;
+    const licenseDisplay = soldCarEntry.licenseNo || soldCarEntry.licensePlate || 'N/A';
+    const calculatedProfit = soldCarEntry.profit;
+    const calculatedPercentage = profitData.profitPercentage;
     
-    alert(`✅ Profit Updated!\n\nCar: ${car.brand} ${car.model} (${car.licenseNo})\nOriginal Price: ${formatCurrency(parseFloat(formData.originalPrice))}\nTotal Expenses: ${formatCurrency(profitData.totalExpenses)}\nSelling Price: ${formatCurrency(parseFloat(formData.retailedPrice))}\nProfit: ${formatCurrency(profit)} (${profitPercentage.toFixed(2)}%)\n\nThis profit calculation will now appear in the sold list when this car is marked as sold.`);
+    alert(`✅ Profit Updated & Car Sold!\n\nCar: ${carDisplay} (${licenseDisplay})\nOriginal Price: ${formatCurrency(originalPriceValue)}\nTotal Expenses: ${formatCurrency(profitData.totalExpenses)}\nSold Price: ${formatCurrency(retailPriceValue)}\nProfit: ${formatCurrency(calculatedProfit)} (${calculatedPercentage.toFixed(2)}%)\n\nThis car has been moved to the sold list with the updated profit details.`);
+
+    setTimeout(() => {
+      window.location.href = '/admin/sold-list';
+    }, 300);
   };
 
   const handleLogout = () => {
@@ -134,7 +402,7 @@ export default function ProfitCalculator() {
       currency: 'THB',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(amount);
+    }).format(parseCurrency(amount));
   };
 
   if (!car) {
@@ -205,9 +473,14 @@ export default function ProfitCalculator() {
 
                 {/* Box 2: Expenses */}
                 <div className="space-y-6">
-                  <label className="block text-base font-medium text-white mb-4">
-                    Expenses
-                  </label>
+                  <div className="mb-4">
+                    <label className="block text-base font-medium text-white">
+                      Expenses
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Repair history expenses are automatically loaded (marked with 🔧)
+                    </p>
+                  </div>
                   
                   {/* Add New Expense */}
                   <div className="space-y-4">
@@ -241,28 +514,39 @@ export default function ProfitCalculator() {
 
                   {/* Expense List */}
                   <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {formData.expenses.map((expense) => (
-                      <div key={expense.id} className="flex items-center justify-between bg-black/20 rounded-md p-2 border border-gray-600/30">
-                        <span className="text-white text-sm font-medium">{expense.detail}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-white text-sm font-medium">{formatCurrency(expense.amount)}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeExpense(expense.id)}
-                            className="text-red-400 hover:text-red-300 text-sm font-bold hover:bg-red-400/10 px-1 py-1 rounded transition-colors"
-                          >
-                            ×
-                          </button>
+                    {formData.expenses.length === 0 ? (
+                      <p className="text-gray-400 text-sm italic">No expenses added yet</p>
+                    ) : (
+                      formData.expenses.map((expense) => (
+                        <div key={expense.id} className="flex items-center justify-between bg-black/20 rounded-md p-2 border border-gray-600/30">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="text-white text-sm font-medium truncate">{expense.detail}</span>
+                            {expense.fromRepairHistory && (
+                              <span className="text-xs text-blue-400 bg-blue-400/20 px-2 py-0.5 rounded flex-shrink-0" title="From Repair History">
+                                🔧
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-white text-sm font-medium">{formatCurrency(expense.amount)}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeExpense(expense.id)}
+                              className="text-red-400 hover:text-red-300 text-sm font-bold hover:bg-red-400/10 px-1 py-1 rounded transition-colors"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
 
-                {/* Box 3: Selling Price */}
+                {/* Box 3: Sold Price */}
                 <div className="space-y-6">
                   <label htmlFor="retailedPrice" className="block text-base font-medium text-white mb-4">
-                    Selling Price *
+                    Sold Price *
                   </label>
                   <input
                     type="number"
@@ -270,7 +554,7 @@ export default function ProfitCalculator() {
                     name="retailedPrice"
                     value={formData.retailedPrice}
                     onChange={handleInputChange}
-                    placeholder="Enter selling price"
+                    placeholder="Enter sold price"
                     required
                     className="w-full px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />

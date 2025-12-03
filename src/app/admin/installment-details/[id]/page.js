@@ -13,16 +13,8 @@ export default function InstallmentDetails() {
   const [paidMonths, setPaidMonths] = useState(new Set());
   const [ownerBookStatus, setOwnerBookStatus] = useState('pending'); // 'pending', 'ready', 'transferred'
   
-  // Profit calculation modal state
-  const [showProfitModal, setShowProfitModal] = useState(false);
-  const [profitData, setProfitData] = useState({
-    originalPrice: 0,
-    soldPrice: 0,
-    totalExpenses: 0,
-    profit: 0
-  });
-  const [expenses, setExpenses] = useState([]);
-  const [newExpense, setNewExpense] = useState({ details: '', amount: '' });
+  // Penalty fees for each month
+  const [penaltyFees, setPenaltyFees] = useState({});
 
   useEffect(() => {
     // Load installment data from localStorage
@@ -86,90 +78,12 @@ export default function InstallmentDetails() {
   };
 
   const handleOwnerBookTransfer = () => {
-    // Initialize profit calculation data
+    // Directly transfer without profit calculator
     if (installment) {
-      const originalPrice = parseInt(installment.carPrice) || 0;
-      const soldPrice = parseInt(installment.carPrice) || 0; // Default to car price
+      // Update owner book status
+      setOwnerBookStatus('transferred');
       
-      setProfitData({
-        originalPrice: originalPrice,
-        soldPrice: soldPrice,
-        totalExpenses: 0,
-        profit: soldPrice - originalPrice
-      });
-      
-      // Show profit calculation modal
-      setShowProfitModal(true);
-    }
-  };
-
-  const handleProfitInputChange = (field, value) => {
-    setProfitData(prev => ({
-      ...prev,
-      [field]: parseFloat(value) || 0
-    }));
-    
-    // Recalculate profit when inputs change
-    if (field === 'originalPrice' || field === 'soldPrice' || field === 'totalExpenses') {
-      const originalPrice = field === 'originalPrice' ? (parseFloat(value) || 0) : prev.originalPrice;
-      const soldPrice = field === 'soldPrice' ? (parseFloat(value) || 0) : prev.soldPrice;
-      const totalExpenses = field === 'totalExpenses' ? (parseFloat(value) || 0) : prev.totalExpenses;
-      
-      setProfitData(prev => ({
-        ...prev,
-        [field]: parseFloat(value) || 0,
-        profit: soldPrice - (originalPrice + totalExpenses)
-      }));
-    }
-  };
-
-  const addExpense = () => {
-    if (newExpense.details.trim() && newExpense.amount.trim()) {
-      const expense = {
-        id: Date.now(),
-        details: newExpense.details,
-        amount: parseFloat(newExpense.amount) || 0
-      };
-      
-      const updatedExpenses = [...expenses, expense];
-      setExpenses(updatedExpenses);
-      
-      // Recalculate total expenses and profit
-      const totalExpenses = updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-      const profit = profitData.soldPrice - (profitData.originalPrice + totalExpenses);
-      
-      setProfitData(prev => ({
-        ...prev,
-        totalExpenses: totalExpenses,
-        profit: profit
-      }));
-      
-      setNewExpense({ details: '', amount: '' });
-    }
-  };
-
-  const removeExpense = (expenseId) => {
-    const updatedExpenses = expenses.filter(exp => exp.id !== expenseId);
-    setExpenses(updatedExpenses);
-    
-    // Recalculate total expenses and profit
-    const totalExpenses = updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const profit = profitData.soldPrice - (profitData.originalPrice + totalExpenses);
-    
-    setProfitData(prev => ({
-      ...prev,
-      totalExpenses: totalExpenses,
-      profit: profit
-    }));
-  };
-
-  const handleCompleteTransfer = () => {
-    // Update owner book status
-    setOwnerBookStatus('transferred');
-    
-    // Move car from installment list to sold list with profit data
-    if (installment) {
-      // Create sold car entry with profit information
+      // Move car from installment list to sold list
       const soldCarData = {
         id: installment.id,
         carList: installment.carListNo,
@@ -186,19 +100,13 @@ export default function InstallmentDetails() {
         financeFee: 'N/A',
         repairHistory: 'N/A',
         carPhoto: '/admin.png',
-        // Sold car specific fields
         soldDate: new Date().toLocaleDateString('en-GB'),
-        soldPrice: `฿${profitData.soldPrice.toLocaleString()}`,
+        soldPrice: installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A',
         customerName: installment.customerName,
         phoneNumber: installment.phoneNumber,
         passportNumber: installment.passportNumber,
         transferCompleted: true,
-        transferDate: new Date().toLocaleDateString('en-GB'),
-        // Profit calculation data
-        originalPrice: profitData.originalPrice,
-        totalExpenses: profitData.totalExpenses,
-        profit: profitData.profit,
-        expenses: expenses
+        transferDate: new Date().toLocaleDateString('en-GB')
       };
 
       // Add to sold cars list
@@ -210,21 +118,19 @@ export default function InstallmentDetails() {
       const existingInstallments = JSON.parse(localStorage.getItem('installments') || '[]');
       const updatedInstallments = existingInstallments.filter(inst => inst.id.toString() !== installmentId);
       localStorage.setItem('installments', JSON.stringify(updatedInstallments));
-
-      console.log('Transfer completed with profit data:', {
-        originalPrice: profitData.originalPrice,
-        soldPrice: profitData.soldPrice,
-        totalExpenses: profitData.totalExpenses,
-        profit: profitData.profit,
-        expenses: expenses
-      });
       
-      alert("Owner book transfer completed! Car has been moved to sold list with profit calculation.");
+      alert("Owner book transfer completed! Car has been moved to sold list.");
       
-      // Close modal and redirect to sold list
-      setShowProfitModal(false);
+      // Redirect to sold list
       window.location.href = '/admin/sold-list';
     }
+  };
+
+  const handlePenaltyFeeChange = (monthNumber, value) => {
+    setPenaltyFees(prev => ({
+      ...prev,
+      [monthNumber]: parseFloat(value) || 0
+    }));
   };
 
   const handlePaymentClick = (monthNumber) => {
@@ -448,28 +354,46 @@ export default function InstallmentDetails() {
                       return (
                         <div 
                           key={monthNumber} 
-                          onClick={() => handlePaymentClick(monthNumber)}
-                          className={`bg-black/30 rounded-lg p-4 border border-gray-600 cursor-pointer transition-all duration-200 hover:scale-105 ${
+                          className={`bg-black/30 rounded-lg p-4 border border-gray-600 transition-all duration-200 ${
                             isPaid ? 'border-green-500 bg-green-900/20' : 'hover:border-gray-500'
                           }`}
                         >
                           <div className="text-center">
-                            <p className="text-sm text-gray-300 mb-1">Month {monthNumber}</p>
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                              <p className="text-sm text-gray-300">Month {monthNumber}</p>
+                              <button
+                                onClick={() => handlePaymentClick(monthNumber)}
+                                className="cursor-pointer"
+                              >
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  isPaid 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {isPaid ? 'Paid' : 'Pending'}
+                                </span>
+                              </button>
+                            </div>
                             <p className="text-white text-lg font-bold mb-2">
                               ฿{paymentAmount.toLocaleString()}
                             </p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-gray-400 mb-2">
                               Due: {dueDate.toLocaleDateString('en-GB')}
                             </p>
-                            <div className="mt-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                isPaid 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {isPaid ? 'Paid' : 'Pending'}
-                              </span>
-                            </div>
+                            {!isPaid && (
+                              <div className="mt-2">
+                                <label className="block text-xs text-gray-300 mb-1">Penalty Fee (Overdue)</label>
+                                <input
+                                  type="number"
+                                  value={penaltyFees[monthNumber] || ''}
+                                  onChange={(e) => handlePenaltyFeeChange(monthNumber, e.target.value)}
+                                  placeholder="0"
+                                  min="0"
+                                  className="w-full px-2 py-1 text-sm border border-gray-500 rounded-md bg-black/30 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -557,158 +481,6 @@ export default function InstallmentDetails() {
         </div>
       </div>
 
-      {/* Profit Calculation Modal */}
-      {showProfitModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-100 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-6">Profit Calculation - Owner Book Transfer</h3>
-              
-              <div className="max-h-[60vh] overflow-y-auto pr-2">
-                <div className="space-y-6">
-                  {/* Basic Information */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-700 mb-3">Car Information</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-1">Car Model</label>
-                        <p className="text-gray-800 font-medium">{installment?.carModel || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-1">License Plate</label>
-                        <p className="text-gray-800 font-medium">{installment?.licensePlate || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-1">Customer</label>
-                        <p className="text-gray-800 font-medium">{installment?.customerName || 'N/A'}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Profit Calculation */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-700 mb-3">Profit Calculation</h4>
-                    <div className="space-y-4">
-                      <div>
-                        <label htmlFor="originalPrice" className="block text-sm font-medium text-gray-600 mb-1">
-                          Original Price (฿) *
-                        </label>
-                        <input
-                          type="number"
-                          id="originalPrice"
-                          value={profitData.originalPrice}
-                          onChange={(e) => handleProfitInputChange('originalPrice', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="soldPrice" className="block text-sm font-medium text-gray-600 mb-1">
-                          Sold Price (฿) *
-                        </label>
-                        <input
-                          type="number"
-                          id="soldPrice"
-                          value={profitData.soldPrice}
-                          onChange={(e) => handleProfitInputChange('soldPrice', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Expenses */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-700 mb-3">Additional Expenses</h4>
-                    <div className="space-y-3">
-                      {expenses.map((expense) => (
-                        <div key={expense.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-md">
-                          <div>
-                            <span className="font-medium text-gray-800">{expense.details}</span>
-                            <span className="ml-2 text-gray-600">฿{expense.amount.toLocaleString()}</span>
-                          </div>
-                          <button
-                            onClick={() => removeExpense(expense.id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Expense details"
-                          value={newExpense.details}
-                          onChange={(e) => setNewExpense(prev => ({ ...prev, details: e.target.value }))}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Amount"
-                          value={newExpense.amount}
-                          onChange={(e) => setNewExpense(prev => ({ ...prev, amount: e.target.value }))}
-                          className="w-32 px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <button
-                          onClick={addExpense}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Profit Summary */}
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-700 mb-3">Profit Summary</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Sold Price:</span>
-                        <span className="font-medium text-gray-800">฿{profitData.soldPrice.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Original Price:</span>
-                        <span className="font-medium text-gray-800">฿{profitData.originalPrice.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Total Expenses:</span>
-                        <span className="font-medium text-gray-800">฿{profitData.totalExpenses.toLocaleString()}</span>
-                      </div>
-                      <hr className="border-gray-300" />
-                      <div className="flex justify-between">
-                        <span className="text-gray-800 font-semibold">Profit/Loss:</span>
-                        <span className={`font-bold text-lg ${profitData.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {profitData.profit >= 0 ? '+' : ''}฿{profitData.profit.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
-                <button
-                  onClick={() => setShowProfitModal(false)}
-                  className="bg-gray-300 text-gray-700 px-6 py-2 rounded-md hover:bg-gray-400 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCompleteTransfer}
-                  className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 font-medium"
-                >
-                  Complete Transfer
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

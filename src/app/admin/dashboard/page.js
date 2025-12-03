@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [cars, setCars] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({
@@ -18,6 +20,17 @@ export default function AdminDashboard() {
     purchasedDate: "",
     carListNo: ""
   });
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+  const getInstallments = () => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(localStorage.getItem("installments") || "[]");
+    } catch (error) {
+      console.error("Failed to parse installments from localStorage:", error);
+      return [];
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -47,7 +60,7 @@ export default function AdminDashboard() {
     };
 
     // Save to localStorage
-    const existingInstallments = JSON.parse(localStorage.getItem('installments') || '[]');
+    const existingInstallments = getInstallments();
     const updatedInstallments = [...existingInstallments, installmentData];
     localStorage.setItem('installments', JSON.stringify(updatedInstallments));
 
@@ -98,7 +111,7 @@ export default function AdminDashboard() {
 
   const handleAddCarToInstallment = (car) => {
     // Check if car already exists in installments
-    const existingInstallments = JSON.parse(localStorage.getItem('installments') || '[]');
+    const existingInstallments = getInstallments();
     const carExists = existingInstallments.some(installment => 
       installment.licensePlate === car.licenseNo || installment.carListNo === car.carList
     );
@@ -127,36 +140,136 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    // Load cars from localStorage
-    const savedCars = localStorage.getItem('cars');
-    if (savedCars) {
-      const cars = JSON.parse(savedCars);
-      
-      // Remove cars that are already in installments
-      const existingInstallments = JSON.parse(localStorage.getItem('installments') || '[]');
-      const filteredCars = cars.filter(car => 
-        !existingInstallments.some(installment => 
-          installment.licensePlate === car.licenseNo
-        )
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Check user role - redirect staff to staff dashboard
+    const user = JSON.parse(localStorage.getItem("user") || "null");
+    if (user && (user.role === "Staff" || user.role === "staff")) {
+      router.push("/staff/dashboard");
+      return;
+    }
+
+    const filterCarsByInstallments = (carList) => {
+      const installments = getInstallments();
+      return carList.filter(
+        (car) =>
+          !installments.some(
+            (installment) =>
+              installment.licensePlate === car.licenseNo ||
+              installment.carListNo === car.carList
+          )
       );
-      
-      // Update localStorage if cars were removed
-      if (filteredCars.length !== cars.length) {
-        localStorage.setItem('cars', JSON.stringify(filteredCars));
+    };
+
+    const loadCarsFromStorage = () => {
+      try {
+        const savedCars = localStorage.getItem("cars");
+        if (savedCars) {
+          const parsedCars = JSON.parse(savedCars);
+          const filteredCars = filterCarsByInstallments(parsedCars);
+          setCars(filteredCars);
+          if (filteredCars.length !== parsedCars.length) {
+            localStorage.setItem("cars", JSON.stringify(filteredCars));
+          }
+          return;
+        }
+      } catch (error) {
+        console.error("Failed to load cars from localStorage:", error);
       }
-      
-      setCars(filteredCars);
-    } else {
-      // Initialize with default cars if none exist
+
       const defaultCars = [
         { id: 1, licenseNo: "ABC-123", brand: "Toyota", model: "Camry", engine: "2.5L", color: "White", wd: "FWD", gear: "Auto", price: "฿25,000" },
         { id: 2, licenseNo: "XYZ-789", brand: "Honda", model: "Civic", engine: "1.8L", color: "Blue", wd: "FWD", gear: "Manual", price: "฿22,000" },
         { id: 3, licenseNo: "DEF-456", brand: "Ford", model: "Focus", engine: "2.0L", color: "Red", wd: "FWD", gear: "Auto", price: "฿20,000" },
       ];
-      setCars(defaultCars);
-      localStorage.setItem('cars', JSON.stringify(defaultCars));
-    }
-  }, []);
+      const filteredDefaultCars = filterCarsByInstallments(defaultCars);
+      setCars(filteredDefaultCars);
+      localStorage.setItem("cars", JSON.stringify(filteredDefaultCars));
+    };
+
+    const fetchCarsFromApi = async () => {
+      if (!API_BASE_URL) {
+        console.warn("API base URL is not set. Skipping remote car fetch.");
+        return;
+      }
+
+      try {
+        // Get token from localStorage for authentication
+        const token = localStorage.getItem('token');
+        
+        const headers = {};
+        
+        // Add Authorization header if token exists
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/api/cars`, { 
+          cache: "no-store",
+          headers: headers
+        });
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            console.error("Unauthorized: Token is missing or invalid");
+            // Optionally redirect to login
+            // router.push('/admin/login');
+            return;
+          }
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("data",data);
+        const apiCars = Array.isArray(data.data) ? data.data : [];
+        console.log("apiCars",apiCars);
+
+        if (!Array.isArray(apiCars)) {
+          console.warn("Unexpected response shape when fetching cars:", data);
+          return;
+        }
+
+        const normalizedCars = apiCars.map((car, index) => {
+          const normalizedPrice =
+            typeof car.priceToSell === "number"
+              ? `฿${car.priceToSell.toLocaleString("en-US")}`
+              : car.priceToSell ?? "";
+
+          return {
+            ...car,
+            id: car.id ?? car._id ?? index,
+            // licenseNo: car.licenseNo ?? car.licensePlate ?? car.license ?? "",
+            // carList: car.carList ?? car.carListNo ?? car.listNo ?? car.carListNumber,
+            // brand: car.brand ?? car.make ?? "",
+            // model: car.model ?? car.name ?? "",
+            price: car.priceToSell,
+            wd: car.wheelDrive,
+            
+          };
+        });
+
+        console.log("normalizedCars",normalizedCars);
+
+        // Filter out cars where isAvailable is false - only show available cars
+        const availableCars = normalizedCars.filter(car => car.isAvailable !== false);
+        console.log("availableCars", availableCars);
+
+        // const filteredCars = filterCarsByInstallments(availableCars);
+
+        // console.log("filteredCars",filteredCars);
+
+        setCars(availableCars);
+        // localStorage.setItem("cars", JSON.stringify(filteredCars));
+      } catch (error) {
+        console.error("Failed to fetch cars from API:", error);
+      }
+    };
+
+    loadCarsFromStorage();
+    fetchCarsFromApi();
+  }, [API_BASE_URL]);
 
 
   const handleLogout = () => {
@@ -272,7 +385,7 @@ export default function AdminDashboard() {
                         {car.model}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
-                        {car.engine}
+                        {car.enginePower}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
                         {car.color}
@@ -287,20 +400,13 @@ export default function AdminDashboard() {
                         {car.price}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">
-                        <div className="flex flex-col space-y-2">
-                          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                            <Link href={`/admin/edit-car/${car.id}`} className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-red-500 font-medium border border-white/30 transition-all duration-200 cursor-pointer">
-                              Edit
-                            </Link>
-                            <Link href={`/admin/profit-calculator/${car.id}`} className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-red-500 font-medium flex items-center justify-center min-w-[28px] sm:min-w-[32px] border border-white/30 transition-all duration-200 cursor-pointer">
-                              <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                              </svg>
-                            </Link>
-                          </div>
+                        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                          <Link href={`/admin/edit-car/${car.id}`} className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-red-500 font-medium border border-white/30 transition-all duration-200 cursor-pointer">
+                            Edit
+                          </Link>
                           <button
                             onClick={() => handleAddCarToInstallment(car)}
-                            className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-green-500 font-medium border border-white/30 transition-all duration-200 cursor-pointer w-full sm:w-auto"
+                            className="bg-black/20 backdrop-blur-md text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded text-xs sm:text-sm hover:bg-black/30 hover:text-green-500 font-medium border border-white/30 transition-all duration-200 cursor-pointer"
                           >
                             Add in Installment
                           </button>

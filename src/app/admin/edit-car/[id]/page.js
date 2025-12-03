@@ -18,9 +18,9 @@ export default function EditCar() {
     wd: "",
     gear: "",
     price: "",
+    originalPrice: "",
     year: "",
     purchasedKilo: "",
-    financeFee: "",
     repairHistory: [],
     carPhoto: null
   });
@@ -36,31 +36,213 @@ export default function EditCar() {
   });
   const [loading, setLoading] = useState(true);
   const [repairHistory, setRepairHistory] = useState([]);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
+  const [originalImagePublicIds, setOriginalImagePublicIds] = useState([]); // Store original image public_ids for backend
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
-    // Simulate loading car data
-    setTimeout(() => {
-      // This is mock data - replace with actual data fetching
-      const mockCar = {
-        id: carId,
-        licenseNo: "ABC-123",
-        brand: "Toyota",
-        model: "Camry",
-        engine: "2.5L",
-        color: "White",
-        wd: "FWD",
-        gear: "Auto",
-        price: "25000",
-        year: "2023",
-        financeFee: "5000",
-        repairHistory: "Regular maintenance every 6 months. Oil change completed. Brake pads replaced at 50,000 km.",
-        carPhoto: "/admin.png"
-      };
-      setFormData(mockCar);
-      setShowRepairHistory(!!mockCar.repairHistory);
+    const fetchCarData = async () => {
+      setLoading(true);
+      
+      // Try to fetch from API first
+      if (API_BASE_URL) {
+        try {
+          // Get token from localStorage for authentication
+          const token = localStorage.getItem('token');
+          
+          const headers = {};
+          
+          // Add Authorization header if token exists
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(`${API_BASE_URL}/api/car/${carId}`, { 
+            cache: "no-store",
+            headers: headers
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const car = data.data || data; 
+            
+            console.log("Editcar",car); // Handle both {data: {...}} and direct object
+            
+            if (car) {
+              // Normalize the API response to match expected format
+              const normalizeCurrency = (value) => {
+                if (value === null || value === undefined) return '';
+                if (typeof value === 'number') return value.toString();
+                return value.toString().replace(/[^\d.-]/g, '');
+              };
+              
+              const priceValue = car.priceToSell !== undefined 
+                ? normalizeCurrency(car.priceToSell) 
+                : normalizeCurrency(car.price || '');
+              
+              const originalPriceValue = car.originalPrice !== undefined
+                ? normalizeCurrency(car.originalPrice)
+                : car.priceToBuy !== undefined
+                ? normalizeCurrency(car.priceToBuy)
+                : priceValue;
+              
+              // Extract URL and public_id from image object array
+              const carPhotoUrl = car.images?.[0]?.url || null;
+              const carPhotoPublicId = car.images?.[0]?.public_id || null;
+              
+              // Store original image public_ids for backend image management
+              const originalPublicIds = car.images && Array.isArray(car.images) 
+                ? car.images.map(img => img.public_id).filter(id => id) 
+                : [];
+              setOriginalImagePublicIds(originalPublicIds);
+              
+              // Get repairs from API (can be 'repairs' or 'repairHistory')
+              const repairsData = car.repairs || [];
+              
+              const normalizedCar = {
+                licenseNo: car.licenseNo || "",
+                brand: car.brand || "",
+                model: car.model || car.name || "",
+                engine: car.enginePower || car.engine || "",
+                color: car.color || "",
+                wd: car.wheelDrive || car.wd || "",
+                gear: car.gear || car.gearType || "",
+                price: priceValue,
+                originalPrice: originalPriceValue,
+                year: car.year || "",
+                purchasedKilo: car.kilo || "",
+                repairHistory: repairsData,
+                image: carPhotoUrl
+              };
+              
+              setFormData({
+                licenseNo: normalizedCar.licenseNo,
+                brand: normalizedCar.brand,
+                model: normalizedCar.model,
+                engine: normalizedCar.engine,
+                color: normalizedCar.color,
+                wd: normalizedCar.wd,
+                gear: normalizedCar.gear,
+                price: normalizedCar.price,
+                originalPrice: normalizedCar.originalPrice,
+                year: normalizedCar.year,
+                purchasedKilo: normalizedCar.purchasedKilo,
+                repairHistory: normalizedCar.repairHistory,
+                carPhoto: normalizedCar.image
+              });
+              
+              // Load repair history if it exists
+              if (repairsData && Array.isArray(repairsData) && repairsData.length > 0) {
+                // Transform repair history to match UI format
+                const transformedHistory = repairsData.map(repair => {
+                  // Convert ISO date string to YYYY-MM-DD format for date input
+                  let repairDateValue = '';
+                  if (repair.repairDate) {
+                    const date = new Date(repair.repairDate);
+                    if (!isNaN(date.getTime())) {
+                      repairDateValue = date.toISOString().split('T')[0];
+                    }
+                  }
+                  
+                  return {
+                    details: repair.description || repair.details || '',
+                    amount: repair.cost || repair.amount || '',
+                    repairDate: repairDateValue || new Date().toISOString().split('T')[0]
+                  };
+                });
+                setRepairHistory(transformedHistory);
+                setShowRepairHistory(true);
+              } else if (normalizedCar.repairHistory && typeof normalizedCar.repairHistory === 'string') {
+                setRepairHistory([{ details: normalizedCar.repairHistory, amount: '', repairDate: new Date().toISOString().split('T')[0] }]);
+                setShowRepairHistory(true);
+              } else {
+                setRepairHistory([]);
+                setShowRepairHistory(false);
+              }
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching car from API:", error);
+          // Continue to localStorage fallback
+        }
+      }
+      
+      // Fallback to localStorage if API is not available or failed
+      const savedCars = localStorage.getItem('cars');
+      
+      if (savedCars) {
+        try {
+          const cars = JSON.parse(savedCars);
+          const foundCar = cars.find(car => car.id.toString() === carId.toString());
+          
+          if (foundCar) {
+            // Extract price value (remove ฿ and commas)
+            const normalizeCurrency = (value) => {
+              if (value === null || value === undefined) return '';
+              return value.toString().replace(/[^\d.-]/g, '');
+            };
+            const priceValue = normalizeCurrency(foundCar.price);
+            const originalPriceValue = foundCar.originalPrice
+              ? normalizeCurrency(foundCar.originalPrice)
+              : priceValue;
+            
+            setFormData({
+              licenseNo: foundCar.licenseNo || "",
+              brand: foundCar.brand || "",
+              model: foundCar.model || "",
+              engine: foundCar.engine || "",
+              color: foundCar.color || "",
+              wd: foundCar.wd || "",
+              gear: foundCar.gear || "",
+              price: priceValue,
+              originalPrice: originalPriceValue,
+              year: foundCar.year || "",
+              purchasedKilo: foundCar.purchasedKilo || "",
+              repairHistory: foundCar.repairHistory || [],
+              carPhoto: foundCar.carPhoto || null
+            });
+            
+            // localStorage doesn't have public_ids, so set to empty array
+            // This is fine since localStorage fallback won't use backend image management
+            setOriginalImagePublicIds([]);
+            
+            // Load repair history if it exists
+            if (foundCar.repairHistory && Array.isArray(foundCar.repairHistory)) {
+              // Transform repair history to include repairDate if missing
+              const transformedHistory = foundCar.repairHistory.map(repair => ({
+                details: repair.description || repair.details || '',
+                amount: repair.cost || repair.amount || '',
+                repairDate: repair.repairDate || new Date().toISOString().split('T')[0]
+              }));
+              setRepairHistory(transformedHistory);
+            } else if (foundCar.repairHistory && typeof foundCar.repairHistory === 'string') {
+              // If repair history is a string, parse it or create initial entry
+              setRepairHistory([{ details: foundCar.repairHistory, amount: '', repairDate: new Date().toISOString().split('T')[0] }]);
+            }
+            
+            setShowRepairHistory(!!foundCar.repairHistory);
+          }
+        } catch (error) {
+          console.error("Error loading car data from localStorage:", error);
+        }
+      }
+      
       setLoading(false);
-    }, 500);
-  }, [carId]);
+    };
+
+    fetchCarData();
+  }, [carId, API_BASE_URL]);
+
+  const formatCurrency = (value) => {
+    if (value === null || value === undefined || value === "") return "N/A";
+    const numeric = parseInt(value.toString().replace(/[^\d.-]/g, ""), 10);
+    if (Number.isNaN(numeric)) {
+      return value;
+    }
+    return `฿${numeric.toLocaleString()}`;
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -78,8 +260,41 @@ export default function EditCar() {
     }));
   };
 
+  useEffect(() => {
+    if (formData.carPhoto instanceof Blob) {
+      const objectUrl = URL.createObjectURL(formData.carPhoto);
+      setPhotoPreviewUrl(objectUrl);
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+    } else if (typeof formData.carPhoto === 'string' && formData.carPhoto.trim().length > 0) {
+      // For string URLs from API, set it directly as preview
+      setPhotoPreviewUrl(formData.carPhoto);
+    } else {
+      setPhotoPreviewUrl(null);
+    }
+  }, [formData.carPhoto]);
+
+  // Determine the image source to display
+  // Add cache-busting parameter to image URLs to ensure browser loads latest version
+  const getImageSrc = (src) => {
+    if (!src || src === "/admin.png") return src;
+    if (src instanceof Blob) return photoPreviewUrl;
+    if (typeof src === 'string' && src.trim().length > 0) {
+      // Add cache-busting parameter if it's a URL (not a data URL)
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        const separator = src.includes('?') ? '&' : '?';
+        return `${src}${separator}t=${Date.now()}`;
+      }
+      return src;
+    }
+    return photoPreviewUrl || "/admin.png";
+  };
+  
+  const carPhotoSrc = getImageSrc(formData.carPhoto);
+
   const addRepairHistory = () => {
-    setRepairHistory(prev => [...prev, { details: '', amount: '' }]);
+    setRepairHistory(prev => [...prev, { details: '', amount: '', repairDate: '' }]);
   };
 
   const removeRepairHistory = (index) => {
@@ -97,12 +312,279 @@ export default function EditCar() {
     setIsSubmitting(true);
     
     try {
-      // Simulate API call for updating car
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      alert("Car updated successfully!");
-      // Redirect back to car details
-      router.push(`/admin/car-details/${carId}`);
+      // Check if there's a new image file to upload
+      const hasNewImage = formData.carPhoto instanceof Blob;
+
+      // Try to update via API first
+      if (API_BASE_URL) {
+        try {
+          // Get token from localStorage for authentication
+          const token = localStorage.getItem('token');
+          
+          // Always use FormData for consistency with add-car endpoint
+          const formDataToSend = new FormData();
+          
+          // Add car ID to FormData (some APIs require this)
+          formDataToSend.append('id', carId);
+          
+          formDataToSend.append('licenseNo', formData.licenseNo);
+          formDataToSend.append('brand', formData.brand);
+          formDataToSend.append('model', formData.model);
+          formDataToSend.append('enginePower', formData.engine);
+          formDataToSend.append('color', formData.color);
+          formDataToSend.append('wheelDrive', formData.wd);
+          
+          // Map gear values to backend expected format: "Manual" or "Automatic" (same as add-car)
+          let gearValue = formData.gear;
+          if (gearValue === 'Auto' || gearValue === 'CVT' || gearValue === 'Semi-Auto') {
+            gearValue = 'Automatic';
+          } else if (gearValue === 'Manual') {
+            gearValue = 'Manual';
+          }
+          formDataToSend.append('gear', gearValue);
+          
+          // Match add-car format exactly
+          formDataToSend.append('priceToSell', formData.price ? parseInt(formData.price) : '');
+          formDataToSend.append('purchasePrice', formData.originalPrice ? parseInt(formData.originalPrice) : '');
+          formDataToSend.append('year', formData.year || '');
+          formDataToSend.append('kilo', formData.purchasedKilo || '');
+          
+          // Transform repair history to match backend schema
+          // Backend expects: description, repairDate, cost
+          // The backend expects repairs as an array, but FormData sends JSON strings as strings
+          // We need to send it in a way the backend can parse
+          const transformedRepairs = repairHistory.map(repair => {
+            // Convert date to ISO string format (YYYY-MM-DD to ISO string)
+            let repairDateValue = repair.repairDate || new Date().toISOString();
+            // If it's already in YYYY-MM-DD format, convert to ISO string
+            if (repairDateValue && !repairDateValue.includes('T')) {
+              repairDateValue = new Date(repairDateValue).toISOString();
+            }
+            
+            return {
+              description: repair.details || '',
+              repairDate: repairDateValue,
+              cost: repair.amount ? parseFloat(repair.amount) : 0
+            };
+          });
+          
+          // Send repairs as JSON string - backend needs to parse it
+          // Some backends automatically parse JSON strings from FormData
+          // If not, the backend middleware needs to handle JSON string parsing
+          formDataToSend.append('repairs', JSON.stringify(transformedRepairs));
+          
+          // Handle image updates/removal
+          // Backend expects existingImages array to know which images to keep
+          if (formData.carPhoto === null || formData.carPhoto === '') {
+            // User removed the photo - send empty array to delete all existing images
+            formDataToSend.append('existingImages', JSON.stringify([]));
+            console.log('Image removal: Sending empty existingImages array to remove all images');
+          } else if (hasNewImage && formData.carPhoto instanceof Blob) {
+            // User uploaded a new image - keep existing images (if any) and add new one
+            // Send existing public_ids so backend knows to keep them
+            formDataToSend.append('existingImages', JSON.stringify(originalImagePublicIds));
+            formDataToSend.append('images', formData.carPhoto);
+            console.log('New image upload: Keeping existing images:', originalImagePublicIds);
+          } else if (typeof formData.carPhoto === 'string' && formData.carPhoto.trim().length > 0) {
+            // User kept the existing photo - send existing public_ids to keep them
+            formDataToSend.append('existingImages', JSON.stringify(originalImagePublicIds));
+            console.log('Keeping existing images:', originalImagePublicIds);
+          } else {
+            // No image change - send existing public_ids to keep them
+            formDataToSend.append('existingImages', JSON.stringify(originalImagePublicIds));
+            console.log('No image change: Keeping existing images:', originalImagePublicIds);
+          }
+          
+          const headers = {};
+          
+          // Add Authorization header if token exists
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          // Don't set Content-Type for FormData - browser will set it automatically with boundary
+          
+          // Log the FormData contents for debugging
+          console.log("Sending update request with FormData:");
+          for (let pair of formDataToSend.entries()) {
+            console.log(pair[0] + ': ' + (pair[1] instanceof File ? `[File: ${pair[1].name}]` : pair[1]));
+          }
+
+          console.log("formDataToSend",formDataToSend);
+          
+          // Try PUT method
+          const response = await fetch(`${API_BASE_URL}/api/car/${carId}/edit`, {
+            method: 'PUT',
+            headers: headers,
+            body: formDataToSend
+          });
+
+          console.log("Response status:", response.status);
+          const responseData = await response.json().catch(() => ({}));
+          console.log("Response data:", responseData);
+          
+          // Log more details if error
+          if (!response.ok) {
+            console.error("Full error details:", {
+              status: response.status,
+              statusText: response.statusText,
+              data: responseData,
+              url: `${API_BASE_URL}/api/car/${carId}/edit`,
+              method: 'PUT'
+            });
+          }
+
+          if (response.ok) {
+            console.log("Car updated via API:", responseData);
+            
+            // Get the updated car data from API response
+            const updatedCar = responseData.car || responseData.data || responseData;
+            
+            // Extract the new image URL from the updated car data
+            let newImageUrl = null;
+            if (updatedCar && updatedCar.images && Array.isArray(updatedCar.images) && updatedCar.images.length > 0) {
+              newImageUrl = updatedCar.images[0].url;
+            } else if (updatedCar && updatedCar.image) {
+              newImageUrl = updatedCar.image;
+            }
+            
+            // If we uploaded a new image or removed an image, refresh from API to get the updated image data
+            // This ensures we have the correct URL and public_ids even if response doesn't include them
+            if (hasNewImage || formData.carPhoto === null) {
+              try {
+                const refreshResponse = await fetch(`${API_BASE_URL}/api/car/${carId}`, { 
+                  cache: "no-store",
+                  headers: headers
+                });
+                
+                if (refreshResponse.ok) {
+                  const refreshData = await refreshResponse.json();
+                  const refreshedCar = refreshData.data || refreshData;
+                  
+                  // Get the new image URL and public_ids from refreshed data
+                  if (refreshedCar && refreshedCar.images && Array.isArray(refreshedCar.images)) {
+                    if (refreshedCar.images.length > 0) {
+                      newImageUrl = refreshedCar.images[0].url;
+                      // Update original image public_ids with new data
+                      const newPublicIds = refreshedCar.images.map(img => img.public_id).filter(id => id);
+                      setOriginalImagePublicIds(newPublicIds);
+                    } else {
+                      // Images were removed
+                      newImageUrl = null;
+                      setOriginalImagePublicIds([]);
+                    }
+                  } else if (refreshedCar && refreshedCar.image) {
+                    newImageUrl = refreshedCar.image;
+                  }
+                }
+              } catch (refreshError) {
+                console.error("Error refreshing car data after image update:", refreshError);
+                // Continue with URL from response if available
+              }
+            }
+            
+            // Update formData with the new image URL from backend
+            // This replaces the Blob object with the actual URL, or null if removed
+            if (newImageUrl !== null) {
+              setFormData(prev => ({
+                ...prev,
+                carPhoto: newImageUrl // Update with new URL from backend (replaces Blob)
+              }));
+            } else if (hasNewImage || formData.carPhoto === null) {
+              // If we uploaded but couldn't get URL, or if we removed image, clear it
+              setFormData(prev => ({
+                ...prev,
+                carPhoto: null // Clear if removed or can't get new URL
+              }));
+            }
+            
+            // Also update localStorage as backup
+            const savedCars = JSON.parse(localStorage.getItem('cars') || '[]');
+            const updatedCars = savedCars.map(car => {
+              if (car.id.toString() === carId.toString()) {
+                return {
+                  ...car,
+                  licenseNo: formData.licenseNo,
+                  brand: formData.brand,
+                  model: formData.model,
+                  engine: formData.engine,
+                  color: formData.color,
+                  wd: formData.wd,
+                  gear: formData.gear,
+                  price: formData.price ? `฿${parseInt(formData.price).toLocaleString()}` : car.price,
+                  originalPrice: formData.originalPrice
+                    ? `฿${parseInt(formData.originalPrice).toLocaleString()}`
+                    : car.originalPrice || "",
+                  year: formData.year,
+                  purchasedKilo: formData.purchasedKilo,
+                  repairHistory: repairHistory.length > 0 ? repairHistory : car.repairHistory || [],
+                  carPhoto: newImageUrl || car.carPhoto // Use new URL from backend
+                };
+              }
+              return car;
+            });
+            localStorage.setItem('cars', JSON.stringify(updatedCars));
+            
+            alert("Car updated successfully!");
+            
+            // Redirect to car details page (which will show the updated photo)
+            router.push(`/admin/car-details/${carId}`);
+            return;
+          } else {
+            console.error("API update failed - Status:", response.status);
+            console.error("API update failed - Response:", responseData);
+            throw new Error(`API update failed: ${response.status} - ${responseData.message || 'Unknown error'}`);
+          }
+        } catch (apiError) {
+          console.error("Error updating car via API:", apiError);
+          // Continue to localStorage fallback
+        }
+      }
+
+      // Fallback to localStorage if API is not available or failed
+      // Commented out since we're using API only
+      // const savedCars = JSON.parse(localStorage.getItem('cars') || '[]');
+      
+      // // Find and update the car
+      // const updatedCars = savedCars.map(car => {
+      //   if (car.id.toString() === carId.toString()) {
+      //     return {
+      //       ...car,
+      //       licenseNo: formData.licenseNo,
+      //       brand: formData.brand,
+      //       model: formData.model,
+      //       engine: formData.engine,
+      //       color: formData.color,
+      //       wd: formData.wd,
+      //       gear: formData.gear,
+      //       price: formData.price ? `฿${parseInt(formData.price).toLocaleString()}` : car.price,
+      //       originalPrice: formData.originalPrice
+      //         ? `฿${parseInt(formData.originalPrice).toLocaleString()}`
+      //         : car.originalPrice || "",
+      //       year: formData.year,
+      //       purchasedKilo: formData.purchasedKilo,
+      //       repairHistory: repairHistory.length > 0 ? repairHistory : car.repairHistory || [],
+      //       carPhoto: formData.carPhoto || car.carPhoto
+      //     };
+      //   }
+      //   return car;
+      // });
+      
+      // // Save updated cars to localStorage
+      // localStorage.setItem('cars', JSON.stringify(updatedCars));
+      
+      // alert("Car updated successfully!");
+      // // Redirect back to car details
+      // router.push(`/admin/car-details/${carId}`);
+      
+      // If API fails, show error
+      if (!API_BASE_URL) {
+        alert("API is not configured. Please configure API_BASE_URL.");
+      } else {
+        alert("Error updating car. Please try again.");
+      }
     } catch (error) {
+      console.error("Error updating car:", error);
       alert("Error updating car. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -115,8 +597,8 @@ export default function EditCar() {
       return;
     }
 
-    // Set default sold price to original price
-    setSoldPrice(formData.price.replace('฿', '').replace(',', ''));
+    // Set sold price to blank - user will enter manually
+    setSoldPrice("");
     setShowSoldModal(true);
   };
 
@@ -147,10 +629,12 @@ export default function EditCar() {
       color: formData.color,
       wd: formData.wd,
       gear: formData.gear,
-      price: formData.price,
+      price: formData.price ? `฿${parseInt(formData.price).toLocaleString()}` : "",
+      originalPrice: formData.originalPrice
+        ? `฿${parseInt(formData.originalPrice).toLocaleString()}`
+        : "",
       year: formData.year,
       purchasedKilo: formData.purchasedKilo,
-      financeFee: formData.financeFee,
       repairHistory: repairHistory,
       carPhoto: formData.carPhoto,
       soldDate: new Date().toLocaleDateString('en-GB'),
@@ -169,11 +653,11 @@ export default function EditCar() {
 
     alert(`"${formData.brand} ${formData.model}" has been marked as sold for ${soldCar.soldPrice} and moved to the sold list!`);
     
-    // Close modal and redirect
+    // Close modal and redirect to profit calculator
     setShowSoldModal(false);
     setSoldPrice("");
     setCustomerInfo({ customerName: "", phoneNumber: "", passportNumber: "" });
-    router.push('/admin/dashboard');
+    router.push(`/admin/profit-calculator/${carId}`);
   };
 
   const handleSoldCancel = () => {
@@ -298,9 +782,26 @@ export default function EditCar() {
                     onChange={handleInputChange}
                     required
                     min="0"
-                    step="1000"
+                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 25000"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="originalPrice" className="block text-base font-medium text-white mb-2">
+                    Original Price (฿)
+                  </label>
+                  <input
+                    type="number"
+                    id="originalPrice"
+                    name="originalPrice"
+                    value={formData.originalPrice}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="1"
+                    className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    placeholder="e.g., 20000"
                   />
                 </div>
 
@@ -366,7 +867,7 @@ export default function EditCar() {
                     onChange={handleInputChange}
                     required
                     min="0"
-                    step="1000"
+                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 50000"
                   />
@@ -406,28 +907,12 @@ export default function EditCar() {
                   >
                     <option value="">Select Gear Type</option>
                     <option value="Manual">Manual</option>
-                    <option value="Auto">Automatic</option>
+                    <option value="Automatic">Automatic</option>
                     <option value="CVT">CVT</option>
                     <option value="Semi-Auto">Semi-Automatic</option>
                   </select>
                 </div>
 
-                <div>
-                  <label htmlFor="financeFee" className="block text-base font-medium text-white mb-2">
-                    Finance Fee (฿)
-                  </label>
-                  <input
-                    type="number"
-                    id="financeFee"
-                    name="financeFee"
-                    value={formData.financeFee}
-                    onChange={handleInputChange}
-                    min="0"
-                    step="100"
-                    className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    placeholder="e.g., 5000"
-                  />
-                </div>
               </div>
 
               {/* Car Photo Upload */}
@@ -440,7 +925,7 @@ export default function EditCar() {
                     {formData.carPhoto ? (
                       <div className="space-y-2">
                         <PhotoViewer 
-                          src={typeof formData.carPhoto === 'string' ? formData.carPhoto : URL.createObjectURL(formData.carPhoto)} 
+                          src={carPhotoSrc} 
                           alt="Car preview" 
                           className="mx-auto h-32 w-auto rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
                         />
@@ -519,7 +1004,7 @@ export default function EditCar() {
                       setShowRepairHistory(newShowState);
                       // Auto-add first repair entry when opening
                       if (newShowState && repairHistory.length === 0) {
-                        setRepairHistory([{ details: '', amount: '' }]);
+                        setRepairHistory([{ details: '', amount: '', repairDate: new Date().toISOString().split('T')[0] }]);
                       }
                     }}
                     className="flex items-center justify-center w-6 h-6 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors cursor-pointer"
@@ -548,6 +1033,16 @@ export default function EditCar() {
                             className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                           />
                         </div>
+                        <div className="w-40">
+                          <input
+                            type="date"
+                            placeholder="Repair Date"
+                            value={item.repairDate || ''}
+                            onChange={(e) => updateRepairHistory(index, 'repairDate', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                            required
+                          />
+                        </div>
                         <div className="w-32">
                           <input
                             type="number"
@@ -555,6 +1050,9 @@ export default function EditCar() {
                             value={item.amount}
                             onChange={(e) => updateRepairHistory(index, 'amount', e.target.value)}
                             className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                            min="0"
+                            step="0.01"
+                            required
                           />
                         </div>
                         <button
@@ -618,7 +1116,7 @@ export default function EditCar() {
                     Car: {formData.brand} {formData.model} ({formData.licenseNo})
                   </label>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Original Price: {formData.price}
+                    Original Price: {formatCurrency(formData.originalPrice)}
                   </label>
                 </div>
 

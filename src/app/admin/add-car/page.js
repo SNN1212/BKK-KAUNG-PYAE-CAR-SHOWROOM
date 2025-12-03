@@ -1,21 +1,24 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import PhotoViewer from "../../components/PhotoViewer";
 
 export default function AddCar() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
-    licenseNo: "",
-    brand: "",
-    model: "",
-    engine: "",
-    color: "",
+    licenseNo: "3276",
+    brand: "toyota",
+    model: "yaris",
+    engine: "1.2",
+    color: "grey",
     wd: "",
-    gear: "",
-    price: "",
-    year: "",
-    purchasedKilo: "",
-    financeFee: "",
+    gear: "Automatic",
+    price: "180000",
+    originalPrice: "160000",
+    year: "2014",
+    purchasedKilo: "210000",
+    purchaseDate: "2025-09-30",
     repairHistory: [],
     carPhoto: null
   });
@@ -23,6 +26,8 @@ export default function AddCar() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRepairHistory, setShowRepairHistory] = useState(false);
   const [repairHistory, setRepairHistory] = useState([]);
+  
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -41,7 +46,7 @@ export default function AddCar() {
   };
 
   const addRepairHistory = () => {
-    setRepairHistory(prev => [...prev, { details: '', amount: '' }]);
+    setRepairHistory(prev => [...prev, { details: '', amount: '', repairDate: '' }]);
   };
 
   const removeRepairHistory = (index) => {
@@ -59,62 +64,251 @@ export default function AddCar() {
     setIsSubmitting(true);
     
     try {
-      // Create car object with all form data
-      const newCar = {
-        id: Date.now(), // Generate unique ID
-        licenseNo: formData.licenseNo,
-        brand: formData.brand,
-        model: formData.model,
-        engine: formData.engine,
-        color: formData.color,
-        wd: formData.wd,
-        gear: formData.gear,
-        price: formData.price ? `฿${parseInt(formData.price).toLocaleString()}` : "",
-        year: formData.year,
-        purchasedKilo: formData.purchasedKilo,
-        financeFee: formData.financeFee ? `฿${parseInt(formData.financeFee).toLocaleString()}` : "",
-        repairHistory: repairHistory.length > 0 ? repairHistory.map(repair => 
-          `${repair.details}${repair.amount ? ` (฿${parseInt(repair.amount).toLocaleString()})` : ''}`
-        ).join('; ') : "No repair history recorded",
-        carPhoto: formData.carPhoto ? "/admin.png" : "/admin.png" // Default photo for now
-      };
+      // Try to create via API first
+      if (API_BASE_URL) {
+        try {
+          // Get token from localStorage for authentication
+          const token = localStorage.getItem('token');
+          
+          // Debug: Log form data before sending
+          console.log('Form data before sending:', formData);
+          console.log('Repair history:', repairHistory);
+          
+          // Map wheelDrive - ensure it's one of the valid values
+          let wheelDriveValue = formData.wd || '';
+          if (wheelDriveValue === 'front-wheel') {
+            wheelDriveValue = 'FWD';
+          } else if (wheelDriveValue === 'rear-wheel') {
+            wheelDriveValue = 'RWD';
+          } else if (wheelDriveValue === 'all-wheel') {
+            wheelDriveValue = 'AWD';
+          } else if (wheelDriveValue === 'four-wheel') {
+            wheelDriveValue = '4WD';
+          }
+          // If already FWD, RWD, AWD, or 4WD, keep it as is
+          
+          // Map gear values to backend expected format: "Manual" or "Automatic"
+          let gearValue = formData.gear || '';
+          if (gearValue === 'Auto' || gearValue === 'CVT' || gearValue === 'Semi-Auto') {
+            gearValue = 'Automatic';
+          } else if (gearValue === 'Manual') {
+            gearValue = 'Manual';
+          }
+          
+          // Prepare numeric fields - send as numbers, not strings
+          const priceToSellNum = formData.price ? parseInt(formData.price) : null;
+          const priceToSell = (priceToSellNum !== null && !isNaN(priceToSellNum)) ? priceToSellNum : null;
+          
+          const purchasePriceNum = formData.originalPrice ? parseInt(formData.originalPrice) : null;
+          const purchasePrice = (purchasePriceNum !== null && !isNaN(purchasePriceNum)) ? purchasePriceNum : null;
+          
+          const yearNum = formData.year ? parseInt(formData.year) : null;
+          const year = (yearNum !== null && !isNaN(yearNum)) ? yearNum : null;
+          
+          const kiloNum = formData.purchasedKilo ? parseInt(formData.purchasedKilo) : null;
+          const kilo = (kiloNum !== null && !isNaN(kiloNum)) ? kiloNum : null;
+          
+          // Add purchaseDate - convert to ISO string format for backend
+          let purchaseDate = formData.purchaseDate || new Date().toISOString();
+          // If it's in YYYY-MM-DD format, convert to ISO string
+          if (purchaseDate && !purchaseDate.includes('T')) {
+            purchaseDate = new Date(purchaseDate).toISOString();
+          }
+          
+          // Transform repair history to match backend schema
+          // Backend expects: description, repairDate, cost
+          const transformedRepairs = repairHistory.map(repair => {
+            // Convert date to ISO string format (YYYY-MM-DD to ISO string)
+            let repairDateValue = repair.repairDate || new Date().toISOString();
+            // If it's already in YYYY-MM-DD format, convert to ISO string
+            if (repairDateValue && !repairDateValue.includes('T')) {
+              repairDateValue = new Date(repairDateValue).toISOString();
+            }
+            
+            return {
+              description: String(repair.details || '').trim(),
+              repairDate: repairDateValue,
+              cost: repair.amount ? Number(repair.amount) : 0
+            };
+          });
+          
+          // Validate required fields before sending
+          const licenseNo = String(formData.licenseNo || '').trim();
+          const brand = String(formData.brand || '').trim();
+          const model = String(formData.model || '').trim();
+          const enginePower = String(formData.engine || '').trim();
+          const color = String(formData.color || '').trim();
+          
+          // Validate required fields
+          if (!licenseNo || licenseNo.length < 2) {
+            throw new Error('License number is required and must be at least 2 characters');
+          }
+          if (!brand || brand.length === 0) {
+            throw new Error('Brand is required');
+          }
+          if (!model || model.length === 0) {
+            throw new Error('Model is required');
+          }
+          if (!enginePower || enginePower.length === 0) {
+            throw new Error('Engine power is required');
+          }
+          if (!color || color.length === 0) {
+            throw new Error('Color is required');
+          }
+          if (!wheelDriveValue) {
+            throw new Error('Wheel drive is required');
+          }
+          if (!gearValue) {
+            throw new Error('Gear type is required');
+          }
+          if (!purchaseDate) {
+            throw new Error('Purchase date is required');
+          }
+          // Validate purchaseDate is a valid date
+          const purchaseDateObj = new Date(purchaseDate);
+          if (isNaN(purchaseDateObj.getTime())) {
+            throw new Error('Purchase date must be a valid date');
+          }
+          if (year === null || isNaN(year) || year < 1900 || year > 2030) {
+            throw new Error('Valid year is required (1900-2030)');
+          }
+          if (kilo === null || isNaN(kilo) || kilo < 0) {
+            throw new Error('Valid kilometer reading is required');
+          }
+          if (priceToSell === null || isNaN(priceToSell) || priceToSell <= 0) {
+            throw new Error('Valid selling price is required');
+          }
+          if (purchasePrice === null || isNaN(purchasePrice) || purchasePrice <= 0) {
+            throw new Error('Valid purchase price is required');
+          }
+          
+          // Use FormData to send files properly (backend expects req.files from multer)
+          const formDataToSend = new FormData();
+          
+          // Append all required fields (validated above) - ensure no empty strings
+          // Backend validation might check before parsing, so ensure all values are non-empty
+          formDataToSend.append('licenseNo', licenseNo || '');
+          formDataToSend.append('brand', brand || '');
+          formDataToSend.append('model', model || '');
+          formDataToSend.append('enginePower', enginePower || '');
+          formDataToSend.append('color', color || '');
+          formDataToSend.append('wheelDrive', wheelDriveValue || '');
+          formDataToSend.append('gear', gearValue || '');
+          formDataToSend.append('purchaseDate', purchaseDate || '');
+          formDataToSend.append('year', year !== null ? String(year) : '');
+          formDataToSend.append('kilo', kilo !== null ? String(kilo) : '');
+          formDataToSend.append('priceToSell', priceToSell !== null ? String(priceToSell) : '');
+          formDataToSend.append('purchasePrice', purchasePrice !== null ? String(purchasePrice) : '');
+          
+          // Send repairs as JSON string - backend needs to parse it
+          // Always send repairs array, even if empty
+          formDataToSend.append('repairs', JSON.stringify(transformedRepairs || []));
+          
+          // Append the image file if uploaded (backend expects req.files from multer)
+          // Use field name 'images' (plural) to match backend expectation
+          if (formData.carPhoto) {
+            formDataToSend.append('images', formData.carPhoto);
+            console.log('Car photo added to FormData:', formData.carPhoto.name, formData.carPhoto.size, 'bytes');
+          }
+          
+          const headers = {};
+          
+          // Add Authorization header if token exists
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          // Don't set Content-Type for FormData - browser will set it automatically with boundary
+          
+          // Log the FormData contents for debugging - verify all values
+          console.log("=== FormData being sent ===");
+          const formDataEntries = [];
+          for (let pair of formDataToSend.entries()) {
+            if (pair[1] instanceof File) {
+              console.log(pair[0] + ': [File]', pair[1].name, pair[1].size, 'bytes');
+              formDataEntries.push({ key: pair[0], value: `[File: ${pair[1].name}, ${pair[1].size} bytes]` });
+            } else {
+              console.log(pair[0] + ':', pair[1], `(type: ${typeof pair[1]}, length: ${String(pair[1]).length})`);
+              formDataEntries.push({ key: pair[0], value: pair[1], type: typeof pair[1], length: String(pair[1]).length });
+            }
+          }
+          console.log("=== End FormData ===");
+          console.log("FormData summary:", formDataEntries);
+          
+          const response = await fetch(`${API_BASE_URL}/api/create-car`, {
+            method: 'POST',
+            headers: headers,
+            body: formDataToSend
+          });
 
-      // Get existing cars from localStorage
-      const existingCars = JSON.parse(localStorage.getItem('cars') || '[]');
-      
-      // Add new car to the list
-      const updatedCars = [...existingCars, newCar];
-      
-      // Save to localStorage
-      localStorage.setItem('cars', JSON.stringify(updatedCars));
-      
-      // Show success message
-      alert(`Car "${newCar.brand} ${newCar.model}" added successfully to the car list!`);
-      
-      // Reset form
-      setFormData({
-        licenseNo: "",
-        brand: "",
-        model: "",
-        engine: "",
-        color: "",
-        wd: "",
-        gear: "",
-        price: "",
-        year: "",
-        purchasedKilo: "",
-        financeFee: "",
-        repairHistory: [],
-        carPhoto: null
-      });
-      setRepairHistory([]);
-      
-      // Redirect to car list to see the new car
-      window.location.href = '/admin/dashboard';
+          if (response.ok) {
+            const result = await response.json();
+            
+            // Also save to localStorage as backup
+            
+            
+            alert(`Car "${formData.brand} ${formData.model}" added successfully!`);
+            
+            // Reset form
+            setFormData({
+              licenseNo: "",
+              brand: "",
+              model: "",
+              engine: "",
+              color: "",
+              wd: "",
+              gear: "",
+              price: "",
+              originalPrice: "",
+              year: "",
+              purchasedKilo: "",
+              purchaseDate: "",
+              repairHistory: [],
+              carPhoto: null
+            });
+            setRepairHistory([]);
+            
+            // Redirect to dashboard
+            router.push('/admin/dashboard');
+            return;
+          } else {
+            const errorText = await response.text();
+            console.log('Backend error response:', errorText);
+            console.log('Response status:', response.status);
+            console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+            
+            let errorData;
+            try {
+              errorData = JSON.parse(errorText);
+              console.log('Parsed error data:', errorData);
+            } catch {
+              errorData = { message: errorText || `API creation failed: ${response.status}` };
+            }
+            
+            // Format validation errors for user-friendly display
+            let errorMessage = errorData.message || errorData.error || `API creation failed: ${response.status}`;
+            if (errorData.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0) {
+              console.log('Validation errors:', errorData.errors);
+              const errorMessages = errorData.errors.map(err => 
+                `${err.field}: ${err.message}${err.value !== undefined ? ` (received: ${JSON.stringify(err.value)})` : ''}`
+              ).join('\n');
+              errorMessage = `Validation errors:\n${errorMessages}`;
+            }
+            
+            throw new Error(errorMessage);
+          }
+        } catch (apiError) {
+          alert(`Error creating car: ${apiError.message || "Please try again."}`);
+          throw apiError; // Re-throw to be caught by outer catch
+        }
+      } else {
+        // If API_BASE_URL is not set, show error
+        alert("API endpoint is not configured. Please set NEXT_PUBLIC_API_BASE_URL.");
+        throw new Error("API endpoint not configured");
+      }
       
     } catch (error) {
-      console.error('Error adding car:', error);
-      alert("Error adding car. Please try again.");
+      alert(`Error adding car: ${error.message || "Please try again."}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -223,9 +417,26 @@ export default function AddCar() {
                     onChange={handleInputChange}
                     required
                     min="0"
-                    step="1000"
+                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 25000"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="originalPrice" className="block text-base font-medium text-white mb-2">
+                    Original Price (฿)
+                  </label>
+                  <input
+                    type="number"
+                    id="originalPrice"
+                    name="originalPrice"
+                    value={formData.originalPrice}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="1"
+                    className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    placeholder="e.g., 20000"
                   />
                 </div>
 
@@ -291,9 +502,24 @@ export default function AddCar() {
                     onChange={handleInputChange}
                     required
                     min="0"
-                    step="1000"
+                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 50000"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="purchaseDate" className="block text-base font-medium text-white mb-2">
+                    Purchase Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="purchaseDate"
+                    name="purchaseDate"
+                    value={formData.purchaseDate}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
 
@@ -337,22 +563,6 @@ export default function AddCar() {
                   </select>
                 </div>
 
-                <div>
-                  <label htmlFor="financeFee" className="block text-base font-medium text-white mb-2">
-                    Finance Fee (฿)
-                  </label>
-                  <input
-                    type="number"
-                    id="financeFee"
-                    name="financeFee"
-                    value={formData.financeFee}
-                    onChange={handleInputChange}
-                    min="0"
-                    step="100"
-                    className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    placeholder="e.g., 5000"
-                  />
-                </div>
               </div>
 
               {/* Car Photo Upload */}
@@ -457,7 +667,7 @@ export default function AddCar() {
                       setShowRepairHistory(newShowState);
                       // Auto-add first repair entry when opening
                       if (newShowState && repairHistory.length === 0) {
-                        setRepairHistory([{ details: '', amount: '' }]);
+                        setRepairHistory([{ details: '', amount: '', repairDate: '' }]);
                       }
                     }}
                     className="flex items-center justify-center w-6 h-6 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors cursor-pointer"
@@ -486,12 +696,22 @@ export default function AddCar() {
                             className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                           />
                         </div>
+                        <div className="w-44 min-w-[176px]">
+                          <input
+                            type="date"
+                            value={item.repairDate}
+                            onChange={(e) => updateRepairHistory(index, 'repairDate', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                          />
+                        </div>
                         <div className="w-32">
                           <input
                             type="number"
                             placeholder="Amount (฿)"
                             value={item.amount}
                             onChange={(e) => updateRepairHistory(index, 'amount', e.target.value)}
+                            min="0"
+                            step="0.01"
                             className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                           />
                         </div>

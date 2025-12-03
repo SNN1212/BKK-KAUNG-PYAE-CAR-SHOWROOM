@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
-import PhotoViewer from "../../../components/PhotoViewer";
+import { useParams, useRouter } from "next/navigation";
+import PhotoViewer from "@/app/components/PhotoViewer";
 
 export default function CarDetails() {
   const params = useParams();
+  const router = useRouter();
   const carId = params.id;
   
   // Mock car data - in a real app, this would come from an API or database
@@ -13,53 +14,144 @@ export default function CarDetails() {
   const [loading, setLoading] = useState(true);
   const [showSoldModal, setShowSoldModal] = useState(false);
   const [soldPrice, setSoldPrice] = useState("");
+  const [kiloAtSale, setKiloAtSale] = useState("");
   const [customerInfo, setCustomerInfo] = useState({
     customerName: "",
     phoneNumber: "",
     passportNumber: ""
   });
   const [isSoldCar, setIsSoldCar] = useState(false);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
-    // Load car data from localStorage - check both regular cars and sold cars
-    const savedCars = localStorage.getItem('cars');
-    const savedSoldCars = localStorage.getItem('soldCars');
-    
-    let foundCar = null;
-    let carIsSold = false;
+    const fetchCarData = async () => {
+      setLoading(true);
+      
+      // Try to fetch from API first
+      if (API_BASE_URL) {
+        try {
+          // Get token from localStorage for authentication
+          const token = localStorage.getItem('token');
+          
+          const headers = {};
+          
+          // Add Authorization header if token exists
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(`${API_BASE_URL}/api/car/${carId}`, { 
+            cache: "no-store",
+            headers: headers
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const apiCar = data.data || data;
 
-    // First check regular cars
-    if (savedCars) {
-      const cars = JSON.parse(savedCars);
-      foundCar = cars.find(car => car.id.toString() === carId);
-    }
-
-    // If not found in regular cars, check sold cars
-    if (!foundCar && savedSoldCars) {
-      const soldCars = JSON.parse(savedSoldCars);
-      foundCar = soldCars.find(car => car.id.toString() === carId);
-      if (foundCar) {
-        carIsSold = true;
+            console.log('apiCar', apiCar);
+            
+            if (apiCar) {
+              // Handle carPhoto - extract URL from image object array (always one object)
+              const carPhotoUrl = apiCar.images?.[0]?.url || null;
+              
+              // Normalize the API response to match expected format
+              const normalizedCar = {
+                id: apiCar.id || apiCar._id || carId,
+                licenseNo: apiCar.licenseNo || apiCar.licensePlate || apiCar.license || "",
+                brand: apiCar.brand || apiCar.make || "",
+                model: apiCar.model || apiCar.name || "",
+                engine: apiCar.enginePower || apiCar.engine || "",
+                color: apiCar.color || "",
+                wd: apiCar.wheelDrive || apiCar.wd || "",
+                gear: apiCar.gear || apiCar.gearType || "",
+                price: apiCar.priceToSell 
+                  ? (typeof apiCar.priceToSell === 'number' 
+                      ? `฿${apiCar.priceToSell.toLocaleString()}` 
+                      : apiCar.priceToSell)
+                  : apiCar.price || "",
+                originalPrice: apiCar.originalPrice || apiCar.priceToBuy || apiCar.price || "",
+                year: apiCar.year || "",
+                purchasedKilo: apiCar.kilo || "",
+                repairHistory: apiCar.repairs || [],
+                carPhoto: carPhotoUrl,
+                carList: apiCar.carList || apiCar.carListNo || "",
+                sale: apiCar.sale ||  {}
+              };
+              
+              setCar(normalizedCar);
+              setIsSoldCar(false);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching car from API:", error);
+          // Continue to localStorage fallback
+        }
       }
-    }
+      
+      // Fallback to localStorage - check both regular cars and sold cars
+      const savedCars = localStorage.getItem('cars');
+      const savedSoldCars = localStorage.getItem('soldCars');
+      
+      let foundCar = null;
+      let carIsSold = false;
 
-    if (foundCar) {
-      setCar(foundCar);
-      setIsSoldCar(carIsSold);
+      // First check regular cars
+      if (savedCars) {
+        const cars = JSON.parse(savedCars);
+        foundCar = cars.find(car => car.id.toString() === carId.toString() || car._id?.toString() === carId.toString());
+      }
+
+      // If not found in regular cars, check sold cars
+      if (!foundCar && savedSoldCars) {
+        const soldCars = JSON.parse(savedSoldCars);
+        foundCar = soldCars.find(car => car.id.toString() === carId.toString() || car._id?.toString() === carId.toString());
+        if (foundCar) {
+          carIsSold = true;
+        }
+      }
+
+      if (foundCar) {
+        console.log(foundCar);
+        setCar(foundCar);
+        setIsSoldCar(carIsSold);
+      }
+      
+      setLoading(false);
+    };
+
+    fetchCarData();
+  }, [carId, API_BASE_URL]);
+
+  const parseCurrency = (value) => {
+    if (!value) return 0;
+    if (typeof value === "number") return value;
+    const parsed = parseFloat(value.toString().replace(/[^\d.-]/g, ""));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  const formatCurrency = (value) => {
+    if (value === null || value === undefined || value === "") return "N/A";
+    const numeric = parseCurrency(value);
+    if (numeric === 0) {
+      return "฿0";
     }
-    
-    setLoading(false);
-  }, [carId]);
+    return `฿${numeric.toLocaleString()}`;
+  };
 
   const handleMarkAsSold = () => {
     if (!car) return;
     
-    // Set default sold price to original price
-    setSoldPrice(car.price.replace('฿', '').replace(',', ''));
+    // Set sold price to blank - user will enter manually
+    setSoldPrice("");
+    // Set default kiloAtSale to current car kilo if available
+    setKiloAtSale(car.kilo ? car.kilo.toString() : "");
     setShowSoldModal(true);
   };
 
-  const handleSoldSubmit = () => {
+  const handleSoldSubmit = async () => {
     if (!soldPrice || soldPrice.trim() === '') {
       alert("Please enter the sold price.");
       return;
@@ -70,41 +162,80 @@ export default function CarDetails() {
       return;
     }
 
-    if (!customerInfo.phoneNumber.trim()) {
-      alert("Please enter the phone number.");
+    if (!customerInfo.passportNumber || !customerInfo.passportNumber.trim()) {
+      alert("Please enter the passport number.");
       return;
     }
 
-    // Add to sold cars
-    const soldCars = JSON.parse(localStorage.getItem('soldCars') || '[]');
-    const soldCar = {
-      ...car,
-      soldDate: new Date().toLocaleDateString('en-GB'),
-      soldPrice: `฿${parseInt(soldPrice).toLocaleString()}`,
-      customerName: customerInfo.customerName,
-      phoneNumber: customerInfo.phoneNumber,
-      passportNumber: customerInfo.passportNumber
+    if (!kiloAtSale || kiloAtSale.trim() === '') {
+      alert("Please enter the kilometer reading at sale.");
+      return;
+    }
+
+    // Prepare sold car data in the format expected by backend
+    // Backend expects: boughtType, sale.price, sale.soldDate, sale.kiloAtSale, sale.buyer.name, sale.buyer.passport
+    const soldCarData = {
+      boughtType: 'Paid',
+      sale: {
+        price: parseInt(soldPrice),
+        soldDate: new Date().toISOString().split('T')[0], // Format: YYYY-MM-DD
+        kiloAtSale: parseInt(kiloAtSale),
+        buyer: {
+          name: customerInfo.customerName.trim(),
+          passport: customerInfo.passportNumber.trim(),
+          phone: customerInfo.phoneNumber.trim() || undefined // Optional field
+        }
+      }
     };
-    soldCars.push(soldCar);
-    localStorage.setItem('soldCars', JSON.stringify(soldCars));
 
-    // Remove from regular cars
-    const savedCars = JSON.parse(localStorage.getItem('cars') || '[]');
-    const updatedCars = savedCars.filter(c => c.id !== car.id);
-    localStorage.setItem('cars', JSON.stringify(updatedCars));
+    console.log('soldCarData', soldCarData);
 
-    alert(`"${car.brand} ${car.model}" has been marked as sold for ${soldCar.soldPrice} and moved to the sold list!`);
-    
-    // Close modal and redirect
-    setShowSoldModal(false);
-    setSoldPrice("");
-    setCustomerInfo({ customerName: "", phoneNumber: "", passportNumber: "" });
-    window.location.href = '/admin/dashboard';
+    // Call API to mark car as sold
+    if (API_BASE_URL) {
+      try {
+        const token = localStorage.getItem('token');
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/car/${carId}/sell`, {
+          method: 'PUT',
+          headers: headers,
+          body: JSON.stringify(soldCarData),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `Failed to mark car as sold: ${response.statusText}`);
+        }
+
+        const responseData = await response.json();
+        console.log('Car marked as sold:', responseData);
+
+        alert(`"${car.brand} ${car.model}" has been marked as sold for ฿${parseInt(soldPrice).toLocaleString()} and moved to the sold list!`);
+        
+        // Close modal and redirect to profit calculator
+        setShowSoldModal(false);
+        setSoldPrice("");
+        setKiloAtSale("");
+        setCustomerInfo({ customerName: "", phoneNumber: "", passportNumber: "" });
+        // router.push(`/admin/profit-calculator/${carId}`);
+        router.push(`/admin/sold-list`);
+      } catch (error) {
+        console.error("Error marking car as sold:", error);
+        alert(`Failed to mark car as sold: ${error.message}`);
+      }
+    }
   };
 
   const handleSoldCancel = () => {
     setShowSoldModal(false);
     setSoldPrice("");
+    setKiloAtSale("");
     setCustomerInfo({ customerName: "", phoneNumber: "", passportNumber: "" });
   };
 
@@ -131,6 +262,11 @@ export default function CarDetails() {
       </div>
     );
   }
+
+  const carPhotoSrc =
+    typeof car.carPhoto === "string" && car.carPhoto.trim().length > 0
+      ? car.carPhoto
+      : "/admin.png";
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-no-repeat bg-fixed" style={{ backgroundImage: "url('/View.png')" }}>
@@ -200,13 +336,13 @@ export default function CarDetails() {
                   <h3 className="text-lg font-semibold text-white mb-4">Car Photo</h3>
                   <div className="bg-black/30 rounded-lg p-4">
                     <PhotoViewer 
-                      src={car.carPhoto || "/admin.png"} 
+                      src={carPhotoSrc} 
                       alt={`${car.brand} ${car.model}`}
                       className="w-full h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                     />
                     {/* Debug info */}
                     <div className="text-xs text-gray-400 mt-2">
-                      Image source: {car.carPhoto || "/admin.png"}
+                      Image source: {carPhotoSrc}
                     </div>
                   </div>
                 </div>
@@ -215,15 +351,9 @@ export default function CarDetails() {
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-4">Basic Information</h3>
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">Car List No.</label>
-                        <p className="text-white text-lg font-semibold">{car.carList}</p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">License No.</label>
-                        <p className="text-white text-lg font-semibold">{car.licenseNo}</p>
-                      </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">License No.</label>
+                      <p className="text-white text-lg font-semibold">{car.licenseNo}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -272,7 +402,7 @@ export default function CarDetails() {
                     <p className="text-white text-lg font-semibold">{car.gear || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Original Price</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Selling Price</label>
                     <p className="text-white text-lg font-semibold">{car.price || 'N/A'}</p>
                   </div>
                 </div>
@@ -284,7 +414,7 @@ export default function CarDetails() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-1">Selling Price</label>
-                    <p className="text-white text-lg font-semibold">{car.price}</p>
+                    <p className="text-white text-lg font-semibold">{formatCurrency(car.price)}</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-1">Finance Fee</label>
@@ -300,7 +430,7 @@ export default function CarDetails() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-1">Sold Date</label>
-                      <p className="text-white text-lg font-semibold">{car.soldDate || 'N/A'}</p>
+                      <p className="text-white text-lg font-semibold">{car.soldOutDate || 'N/A'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-1">Sold Price</label>
@@ -325,10 +455,6 @@ export default function CarDetails() {
                       <label className="block text-sm font-medium text-gray-300 mb-1">Passport Number</label>
                       <p className="text-white text-lg font-semibold">{car.passportNumber || 'N/A'}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-1">Original Price</label>
-                      <p className="text-white text-lg font-semibold">{car.price}</p>
-                    </div>
                     {car.transferCompleted && (
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">Transfer Status</label>
@@ -347,11 +473,7 @@ export default function CarDetails() {
                   {car.soldPrice && car.price && (
                     <div className="mt-6 p-4 bg-black/30 rounded-lg">
                       <h4 className="text-md font-semibold text-white mb-3">Profit Analysis</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-1">Original Price</label>
-                          <p className="text-white text-lg font-semibold">{car.price}</p>
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-1">Sold Price</label>
                           <p className="text-green-400 text-lg font-semibold">
@@ -366,10 +488,10 @@ export default function CarDetails() {
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-1">Profit/Loss</label>
                           {(() => {
-                            const originalPrice = parseFloat(car.price?.replace('฿', '').replace(',', '') || 0);
+                            const originalPrice = parseCurrency(car.originalPrice || car.price);
                             const soldPrice = typeof car.soldPrice === 'number' 
                               ? car.soldPrice 
-                              : parseFloat(car.soldPrice?.replace('฿', '').replace(',', '') || 0);
+                              : parseCurrency(car.soldPrice);
                             const profit = soldPrice - originalPrice;
                             const profitFormatted = profit >= 0 ? `฿${profit.toLocaleString()}` : `-฿${Math.abs(profit).toLocaleString()}`;
                             const profitColor = profit >= 0 ? 'text-green-400' : 'text-red-400';
@@ -385,12 +507,78 @@ export default function CarDetails() {
               {/* Repair History */}
               <div>
                 <h3 className="text-lg font-semibold text-white mb-4">Repair History</h3>
-                <div className="bg-black/30 rounded-lg p-4">
-                  {car.repairHistory ? (
-                    <p className="text-white text-base leading-relaxed">{car.repairHistory}</p>
-                  ) : (
-                    <p className="text-gray-400 text-base italic">No repair history recorded</p>
-                  )}
+                <div className="bg-black/30 rounded-lg p-4 space-y-3">
+                  {(() => {
+                    if (!car.repairHistory || (Array.isArray(car.repairHistory) && car.repairHistory.length === 0)) {
+                      return <p className="text-gray-400 text-base italic">No repair history recorded</p>;
+                    }
+
+                    if (Array.isArray(car.repairHistory)) {
+                      return car.repairHistory.map((item, index) => {
+                        if (typeof item === "string") {
+                          return (
+                            <p key={index} className="text-white text-base leading-relaxed">
+                              {item}
+                            </p>
+                          );
+                        }
+
+                        if (item && typeof item === "object") {
+                          // Handle API format: description, repairDate, cost
+                          const description = item.description || item.details || "";
+                          const cost = item.cost !== undefined ? item.cost : item.amount;
+                          const repairDate = item.repairDate;
+                          
+                          // Format date if present
+                          let formattedDate = null;
+                          if (repairDate) {
+                            try {
+                              const date = new Date(repairDate);
+                              formattedDate = date.toLocaleDateString('en-GB', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              });
+                            } catch (e) {
+                              formattedDate = repairDate;
+                            }
+                          }
+                          
+                          return (
+                            <div key={index} className="bg-black/30 border border-gray-600/50 rounded-md p-3">
+                              {description && (
+                                <p className="text-white text-base font-medium">{description}</p>
+                              )}
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 mt-2">
+                                {formattedDate && (
+                                  <p className="text-gray-400 text-sm">
+                                    Date: {formattedDate}
+                                  </p>
+                                )}
+                                {cost !== undefined && cost !== null && (
+                                  <p className="text-gray-300 text-sm">
+                                    Cost: ฿{parseFloat(cost).toLocaleString()}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      });
+                    }
+
+                    if (typeof car.repairHistory === "string") {
+                      return <p className="text-white text-base leading-relaxed">{car.repairHistory}</p>;
+                    }
+
+                    return (
+                      <pre className="text-white text-sm bg-black/40 rounded-md p-3 overflow-auto">
+                        {JSON.stringify(car.repairHistory, null, 2)}
+                      </pre>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -411,7 +599,7 @@ export default function CarDetails() {
                     Car: {car?.brand} {car?.model} ({car?.licenseNo})
                   </label>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Original Price: {car?.price}
+                    Listed Price: {car?.price}
                   </label>
                 </div>
 
@@ -431,30 +619,31 @@ export default function CarDetails() {
               </div>
 
               <div>
-                <label htmlFor="customerName" className="block text-sm font-medium text-gray-700 mb-1">
-                  Customer Name *
+                <label htmlFor="kiloAtSale" className="block text-sm font-medium text-gray-700 mb-1">
+                  Kilometer Reading at Sale (km) *
                 </label>
                 <input
-                  type="text"
-                  id="customerName"
-                  value={customerInfo.customerName}
-                  onChange={(e) => setCustomerInfo({...customerInfo, customerName: e.target.value})}
-                  placeholder="Enter customer name"
+                  type="number"
+                  id="kiloAtSale"
+                  value={kiloAtSale}
+                  onChange={(e) => setKiloAtSale(e.target.value)}
+                  placeholder="Enter kilometer reading"
+                  min="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   required
                 />
               </div>
 
               <div>
-                <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number *
+                <label htmlFor="customerName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Buyer Name *
                 </label>
                 <input
-                  type="tel"
-                  id="phoneNumber"
-                  value={customerInfo.phoneNumber}
-                  onChange={(e) => setCustomerInfo({...customerInfo, phoneNumber: e.target.value})}
-                  placeholder="Enter phone number"
+                  type="text"
+                  id="customerName"
+                  value={customerInfo.customerName}
+                  onChange={(e) => setCustomerInfo({...customerInfo, customerName: e.target.value})}
+                  placeholder="Enter buyer name"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   required
                 />
@@ -462,14 +651,29 @@ export default function CarDetails() {
 
               <div>
                 <label htmlFor="passportNumber" className="block text-sm font-medium text-gray-700 mb-1">
-                  Passport Number
+                  Passport Number *
                 </label>
                 <input
                   type="text"
                   id="passportNumber"
                   value={customerInfo.passportNumber}
                   onChange={(e) => setCustomerInfo({...customerInfo, passportNumber: e.target.value})}
-                  placeholder="Enter passport number (optional)"
+                  placeholder="Enter passport number"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  id="phoneNumber"
+                  value={customerInfo.phoneNumber}
+                  onChange={(e) => setCustomerInfo({...customerInfo, phoneNumber: e.target.value})}
+                  placeholder="Enter phone number (optional)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
               </div>

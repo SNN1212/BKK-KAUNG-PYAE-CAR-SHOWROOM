@@ -160,10 +160,26 @@ export default function InstallmentsPage() {
                           {installment.licensePlate || 'N/A'}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
-                          {installment.carBrand || installment.brand || 'N/A'}
+                          {(() => {
+                            // Extract brand from carModel (first word) or use existing brand fields
+                            if (installment.carBrand || installment.brand) {
+                              return installment.carBrand || installment.brand;
+                            }
+                            if (installment.carModel) {
+                              return installment.carModel.split(' ')[0] || 'N/A';
+                            }
+                            return 'N/A';
+                          })()}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
-                          {installment.carModel || installment.model || 'N/A'}
+                          {(() => {
+                            // Extract model from carModel (everything after first word) or use existing model field
+                            if (installment.carModel && !installment.model) {
+                              const parts = installment.carModel.split(' ');
+                              return parts.length > 1 ? parts.slice(1).join(' ') : 'N/A';
+                            }
+                            return installment.model || 'N/A';
+                          })()}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/installment-details/${installment.id}`}>
                           {installment.customerName || 'N/A'}

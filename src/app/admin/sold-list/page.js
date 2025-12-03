@@ -4,24 +4,159 @@ import { useState, useEffect } from "react";
 
 export default function SoldListPage() {
   const [soldCars, setSoldCars] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+  const parseCurrency = (value) => {
+    if (value === null || value === undefined || value === "") return 0;
+    if (typeof value === "number") return Math.round(value);
+    const parsed = parseFloat(value.toString().replace(/[^\d.-]/g, ""));
+    return Number.isNaN(parsed) ? 0 : Math.round(parsed);
+  };
+
+  const formatCurrency = (value) => {
+    if (value === null || value === undefined || value === "") return "N/A";
+    const numeric = parseCurrency(value);
+    return `฿${numeric.toLocaleString()}`;
+  };
 
   useEffect(() => {
-    // Load sold cars from localStorage
-    const loadSoldCars = () => {
-      const savedSoldCars = localStorage.getItem('soldCars');
-      if (savedSoldCars) {
-        setSoldCars(JSON.parse(savedSoldCars));
-      } else {
-        setSoldCars([]);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const loadSoldCarsFromStorage = () => {
+      try {
+        const savedSoldCars = localStorage.getItem('soldCars');
+        if (savedSoldCars) {
+          return JSON.parse(savedSoldCars);
+        }
+      } catch (error) {
+        console.error("Failed to load sold cars from localStorage:", error);
+      }
+      return [];
+    };
+
+    const fetchSoldCarsFromApi = async () => {
+      if (!API_BASE_URL) {
+        console.warn("API base URL is not set. Using localStorage fallback.");
+        const storageCars = loadSoldCarsFromStorage();
+        setSoldCars(storageCars);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Get token from localStorage for authentication
+        const token = localStorage.getItem('token');
+        
+        const headers = {};
+        
+        // Add Authorization header if token exists
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/api/cars/sold`, { 
+          cache: "no-store",
+          headers: headers
+        });
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            console.error("Unauthorized: Token is missing or invalid");
+            // Fallback to localStorage
+            const storageCars = loadSoldCarsFromStorage();
+            setSoldCars(storageCars);
+            setLoading(false);
+            return;
+          }
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const apiCars = Array.isArray(data.data) ? data.data : [];
+
+        if (!Array.isArray(apiCars)) {
+          console.warn("Unexpected response shape when fetching cars:", data);
+          const storageCars = loadSoldCarsFromStorage();
+          setSoldCars(storageCars);
+          setLoading(false);
+          return;
+        }
+
+        // Cars from /api/cars/sold are already filtered to sold cars (have sale or installment)
+        // Normalize the API response to match expected format
+        const normalizedSoldCars = apiCars.map((car, index) => {
+          const normalizedPrice =
+            typeof car.priceToSell === "number"
+              ? `฿${car.priceToSell.toLocaleString("en-US")}`
+              : car.priceToSell ?? "";
+
+          // Determine if it's a paid sale or installment
+          const isPaidSale = car.sale != null;
+          const isInstallment = car.installment != null;
+          
+          // Get buyer info from sale or installment
+          const buyer = car.sale?.buyer || car.installment?.buyer || null;
+          
+          // Get sold price: from sale.price or calculated from installment
+          const soldPrice = isPaidSale 
+            ? (typeof car.sale.price === 'number' ? Math.round(car.sale.price) : car.sale.price)
+            : isInstallment 
+              ? Math.round((car.installment.downPayment || 0) + (car.installment.remainingAmount || 0))
+              : null;
+          
+          // Get sold date: from sale.date or installment.startDate
+          const soldDate = isPaidSale
+            ? car.sale.date
+            : isInstallment
+              ? car.installment.startDate
+              : null;
+          
+          // Format sold date if it exists
+          const formattedSoldDate = soldDate 
+            ? new Date(soldDate).toLocaleDateString('en-GB')
+            : "";
+
+          return {
+            ...car,
+            id: car.id ?? car._id ?? index,
+            licenseNo: car.licenseNo ?? car.licensePlate ?? car.license ?? "",
+            brand: car.brand ?? car.make ?? "",
+            model: car.model ?? car.name ?? "",
+            price: normalizedPrice,
+            originalPrice: car.purchasePrice ?? car.priceToBuy ?? car.originalPrice ?? "",
+            wd: car.wheelDrive ?? car.wd ?? "",
+            soldPrice: soldPrice,
+            customerName: buyer?.name ?? "",
+            phoneNumber: buyer?.phone ?? "",
+            passportNumber: buyer?.passport ?? "",
+            soldDate: formattedSoldDate,
+            transferCompleted: car.transferCompleted ?? false,
+            transferDate: car.transferDate ?? "",
+            boughtType: car.boughtType ?? (isPaidSale ? "Paid" : isInstallment ? "Installment" : null)
+          };
+        });
+
+        setSoldCars(normalizedSoldCars);
+        setLoading(false);
+      } catch (error) {
+        console.error("Failed to fetch sold cars from API:", error);
+        // Fallback to localStorage
+        const storageCars = loadSoldCarsFromStorage();
+        setSoldCars(storageCars);
+        setLoading(false);
       }
     };
 
-    loadSoldCars();
+    fetchSoldCarsFromApi();
 
     // Listen for storage changes (when cars are marked as sold from other tabs)
     const handleStorageChange = (e) => {
       if (e.key === 'soldCars') {
-        loadSoldCars();
+        const storageCars = loadSoldCarsFromStorage();
+        setSoldCars(storageCars);
       }
     };
 
@@ -30,16 +165,50 @@ export default function SoldListPage() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, []);
+  }, [API_BASE_URL]);
 
-  const handleTransferMark = (car) => {
+  const handleTransferMark = async (car) => {
     if (window.confirm(`Mark the sale of ${car.brand} ${car.model} (${car.licenseNo}) as completed? This indicates the ownership transfer is finalized.`)) {
+      const transferDate = new Date().toLocaleDateString('en-GB');
+      
+      // Update API if available
+      if (API_BASE_URL && car.id) {
+        try {
+          const token = localStorage.getItem('token');
+          const headers = {
+            'Content-Type': 'application/json'
+          };
+          
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(`${API_BASE_URL}/api/car/${car.id}`, {
+            method: 'PUT',
+            headers: headers,
+            body: JSON.stringify({
+              transferCompleted: true,
+              transferDate: transferDate
+            })
+          });
+          
+          if (!response.ok) {
+            console.error("Failed to update car in API:", response.status);
+            // Continue with localStorage update as fallback
+          }
+        } catch (error) {
+          console.error("Error updating car in API:", error);
+          // Continue with localStorage update as fallback
+        }
+      }
+      
+      // Update local state and localStorage
       const updatedSoldCars = soldCars.map(c => {
         if (c.id === car.id) {
           return {
             ...c,
             transferCompleted: true,
-            transferDate: new Date().toLocaleDateString('en-GB')
+            transferDate: transferDate
           };
         }
         return c;
@@ -51,10 +220,52 @@ export default function SoldListPage() {
     }
   };
 
-  const handleMoveBackToCarList = (car) => {
+  const handleMoveBackToCarList = async (car) => {
     if (window.confirm(`Move ${car.brand} ${car.model} (${car.licenseNo}) back to the car list?`)) {
-      // Remove sold-specific fields and move back to car list
-      const { soldDate, soldPrice, customerName, phoneNumber, passportNumber, transferCompleted, transferDate, ...carData } = car;
+      // Update API if available - relist the car (remove sale/installment data)
+      if (API_BASE_URL && car.id) {
+        try {
+          const token = localStorage.getItem('token');
+          const headers = {
+            'Content-Type': 'application/json'
+          };
+          
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          // Use edit endpoint to relist the car
+          // According to schema: set sale=null, installment=null, boughtType=null, isAvailable=true
+          const response = await fetch(`${API_BASE_URL}/api/car/${car.id}/edit`, {
+            method: 'PUT',
+            headers: headers,
+            body: JSON.stringify({
+              sale: null,
+              installment: null,
+              boughtType: null,
+              isAvailable: true
+            })
+          });
+          
+          if (!response.ok) {
+            console.error("Failed to update car in API:", response.status);
+            // Continue with localStorage update as fallback
+          } else {
+            // If API update successful, remove from sold list and refresh
+            const updatedSoldCars = soldCars.filter(c => c.id !== car.id);
+            setSoldCars(updatedSoldCars);
+            localStorage.setItem('soldCars', JSON.stringify(updatedSoldCars));
+            alert('Car moved back to car list successfully!');
+            return;
+          }
+        } catch (error) {
+          console.error("Error updating car in API:", error);
+          // Continue with localStorage update as fallback
+        }
+      }
+      
+      // Fallback: Remove sold-specific fields and move back to car list (localStorage only)
+      const { soldDate, soldPrice, customerName, phoneNumber, passportNumber, transferCompleted, transferDate, boughtType, ...carData } = car;
       
       // Add to car list
       const existingCars = JSON.parse(localStorage.getItem('cars') || '[]');
@@ -146,6 +357,12 @@ export default function SoldListPage() {
                       Customer Name
                     </th>
                     <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Phone Number
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      Passport Number
+                    </th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
                       Sold Price
                     </th>
                     <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">
@@ -157,7 +374,13 @@ export default function SoldListPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-black/10 backdrop-blur-2xl divide-y divide-gray-600">
-                  {soldCars.length > 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan="10" className="px-6 py-12 text-center text-white/70">
+                        Loading sold cars...
+                      </td>
+                    </tr>
+                  ) : soldCars.length > 0 ? (
                     soldCars.map((car, index) => (
                       <tr key={car.id} className="hover:bg-black/30 backdrop-blur-2xl">
                         <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
@@ -176,10 +399,16 @@ export default function SoldListPage() {
                           {car.customerName || 'N/A'}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
+                          {car.phoneNumber || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
+                          {car.passportNumber || 'N/A'}
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white cursor-pointer" onClick={() => window.location.href = `/admin/car-details/${car.id}`}>
                           {car.soldPrice 
                             ? (typeof car.soldPrice === 'number' 
-                                ? `฿${car.soldPrice.toLocaleString()}` 
-                                : `฿${parseInt(car.soldPrice).toLocaleString()}`)
+                                ? `฿${Math.round(car.soldPrice).toLocaleString()}` 
+                                : `฿${Math.round(parseFloat(car.soldPrice) || 0).toLocaleString()}`)
                             : 'N/A'
                           }
                         </td>
@@ -207,25 +436,23 @@ export default function SoldListPage() {
                               const profitFormatted = profit >= 0 ? `฿${profit.toLocaleString()}` : `-฿${Math.abs(profit).toLocaleString()}`;
                               const profitColor = profit >= 0 ? 'text-green-400' : 'text-red-400';
                               return (
-                                <span className={profitColor} title={`From Installment Transfer (Original: ฿${car.originalPrice?.toLocaleString() || 'N/A'}, Sold: ฿${typeof car.soldPrice === 'string' ? car.soldPrice?.replace('฿', '').replace(',', '') : car.soldPrice?.toLocaleString() || 'N/A'}, Expenses: ฿${car.totalExpenses?.toLocaleString() || 'N/A'})`}>
+                                <span
+                                  className={profitColor}
+                                  title={`From Installment Transfer (Original: ${formatCurrency(car.originalPrice)}, Sold: ${formatCurrency(car.soldPrice)}, Expenses: ${formatCurrency(car.totalExpenses)})`}
+                                >
                                   {profitFormatted}
                                 </span>
                               );
                             }
                             
                             // Fallback to basic calculation if no saved calculation exists
-                            if (car.soldPrice && car.price) {
+                            if (car.soldPrice && (car.originalPrice || car.price)) {
                               // Use the same calculation logic as profit calculator
-                              const originalPrice = parseFloat(car.price?.replace('฿', '').replace(',', '') || 0);
-                              const soldPrice = typeof car.soldPrice === 'string' 
-                                ? parseFloat(car.soldPrice?.replace('฿', '').replace(',', '') || 0)
-                                : parseFloat(car.soldPrice || 0);
-                              
+                              const originalPrice = parseCurrency(car.originalPrice || car.price);
+                              const soldPrice = parseCurrency(car.soldPrice);
+                              const financeFee = car.financeFee ? parseCurrency(car.financeFee) : 0;
                               // Calculate total expenses (repair costs, fees, etc.)
-                              let totalExpenses = 0;
-                              if (car.financeFee) {
-                                totalExpenses += parseFloat(car.financeFee?.replace('฿', '').replace(',', '') || 0);
-                              }
+                              const totalExpenses = financeFee;
                               
                               // Calculate profit using the same formula as profit calculator
                               // Profit = Selling Price - (Original Price + Total Expenses)
@@ -234,7 +461,10 @@ export default function SoldListPage() {
                               const profitFormatted = profit >= 0 ? `฿${profit.toLocaleString()}` : `-฿${Math.abs(profit).toLocaleString()}`;
                               const profitColor = profit >= 0 ? 'text-green-400' : 'text-red-400';
                               return (
-                                <span className={profitColor} title="Basic calculation (use Profit Calculator for detailed calculation)">
+                                <span
+                                  className={profitColor}
+                                  title={`Basic calculation (Original: ${formatCurrency(originalPrice)}, Sold: ${formatCurrency(soldPrice)}, Expenses: ${formatCurrency(totalExpenses)})`}
+                                >
                                   {profitFormatted}
                                 </span>
                               );
@@ -263,7 +493,7 @@ export default function SoldListPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center text-white/70">
+                      <td colSpan="10" className="px-6 py-12 text-center text-white/70">
                         No sold cars found. Mark cars as sold from the car details or edit car page.
                       </td>
                     </tr>

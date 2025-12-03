@@ -25,6 +25,7 @@ export default function EditInstallment() {
   const [paidMonths, setPaidMonths] = useState(new Set());
   const [ownerBookStatus, setOwnerBookStatus] = useState('pending');
   const [selectedMonths, setSelectedMonths] = useState([]);
+  const [penaltyFees, setPenaltyFees] = useState({});
 
   useEffect(() => {
     // Load installment data from localStorage
@@ -389,38 +390,57 @@ export default function EditInstallment() {
                           return (
                             <div
                               key={monthNumber}
-                              onClick={() => {
-                                setPaidMonths(prev => {
-                                  const newPaidMonths = new Set(prev);
-                                  if (newPaidMonths.has(monthNumber)) {
-                                    newPaidMonths.delete(monthNumber);
-                                  } else {
-                                    newPaidMonths.add(monthNumber);
-                                  }
-                                  return newPaidMonths;
-                                });
-                              }}
-                              className={`bg-black/30 rounded-lg p-3 border border-gray-600 cursor-pointer transition-all duration-200 hover:scale-105 ${
+                              className={`bg-black/30 rounded-lg p-3 border border-gray-600 transition-all duration-200 ${
                                 isPaid ? 'border-green-500 bg-green-900/20' : 'hover:border-gray-500'
                               }`}
                             >
                               <div className="text-center">
-                                <p className="text-sm text-gray-300 mb-1">Month {monthNumber}</p>
+                                <div className="flex items-center justify-center gap-2 mb-2">
+                                  <p className="text-sm text-gray-300">Month {monthNumber}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPaidMonths(prev => {
+                                        const newPaidMonths = new Set(prev);
+                                        if (newPaidMonths.has(monthNumber)) {
+                                          newPaidMonths.delete(monthNumber);
+                                        } else {
+                                          newPaidMonths.add(monthNumber);
+                                        }
+                                        return newPaidMonths;
+                                      });
+                                    }}
+                                    className="cursor-pointer"
+                                  >
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                      isPaid
+                                        ? 'bg-green-100 text-green-800'
+                                        : 'bg-yellow-100 text-yellow-800'
+                                    }`}>
+                                      {isPaid ? 'Paid' : 'Pending'}
+                                    </span>
+                                  </button>
+                                </div>
                                 <p className="text-white text-base font-bold mb-2">
                                   {formatCurrency(parseInt(formData.monthlyPayment) || 0)}
                                 </p>
                                 <p className="text-xs text-gray-400 mb-2">
                                   Due: {dueDate.toLocaleDateString('en-GB')}
                                 </p>
-                                <div className="mt-2">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    isPaid
-                                      ? 'bg-green-100 text-green-800'
-                                      : 'bg-yellow-100 text-yellow-800'
-                                  }`}>
-                                    {isPaid ? 'Paid' : 'Pending'}
-                                  </span>
-                                </div>
+                                {!isPaid && (
+                                  <div className="mt-2">
+                                    <label className="block text-xs text-gray-300 mb-1">Penalty Fee (Overdue)</label>
+                                    <input
+                                      type="number"
+                                      value={penaltyFees[monthNumber] || ''}
+                                      onChange={(e) => handlePenaltyFeeChange(monthNumber, e.target.value)}
+                                      placeholder="0"
+                                      min="0"
+                                      className="w-full px-2 py-1 text-sm border border-gray-500 rounded-md bg-black/30 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
