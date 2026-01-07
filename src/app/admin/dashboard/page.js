@@ -22,6 +22,7 @@ export default function AdminDashboard() {
     carListNo: "",
     carId: ""
   });
+  const [errors, setErrors] = useState({});
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   const getInstallments = () => {
@@ -34,19 +35,124 @@ export default function AdminDashboard() {
     }
   };
 
+  const validateField = (name, value) => {
+    let error = "";
+    
+    switch (name) {
+      case "customerName":
+        if (!value.trim()) {
+          error = "Customer name is required";
+        } else if (value.trim().length < 2) {
+          error = "Customer name must be at least 2 characters";
+        } else if (!/^[a-zA-Z\s\u00C0-\u017F]+$/.test(value.trim())) {
+          error = "Customer name should only contain letters and spaces";
+        }
+        break;
+        
+      case "phoneNumber":
+        if (!value.trim()) {
+          error = "Phone number is required";
+        } else if (!/^[\d\s\+\-\(\)]+$/.test(value.trim())) {
+          error = "Phone number should only contain numbers, +, -, spaces, and parentheses";
+        } else if (value.replace(/\D/g, "").length < 8) {
+          error = "Phone number must contain at least 8 digits";
+        }
+        break;
+        
+      case "passportNumber":
+        if (!value.trim()) {
+          error = "Passport number is required";
+        } else if (!/^[A-Za-z0-9]+$/.test(value.trim())) {
+          error = "Passport number should only contain letters and numbers";
+        } else if (value.trim().length < 5) {
+          error = "Passport number must be at least 5 characters";
+        }
+        break;
+        
+      case "downPayment":
+        // No validation - manual entry allowed
+        break;
+        
+      case "monthlyPayment":
+        // No validation - manual entry allowed
+        break;
+        
+      case "installmentPeriod":
+        // No validation - manual entry allowed
+        break;
+        
+      case "purchasedDate":
+        if (!value) {
+          error = "Purchased date is required";
+        } else {
+          const selectedDate = new Date(value);
+          const today = new Date();
+          today.setHours(23, 59, 59, 999);
+          if (selectedDate > today) {
+            error = "Purchased date cannot be in the future";
+          }
+        }
+        break;
+    }
+    
+    return error;
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    // Validate all fields except downPayment, monthlyPayment, installmentPeriod (manual entry)
+    Object.keys(formData).forEach(key => {
+      if (key !== "carModel" && key !== "licensePlate" && key !== "carPrice" && 
+          key !== "carListNo" && key !== "carId" && key !== "email" &&
+          key !== "downPayment" && key !== "monthlyPayment" && key !== "installmentPeriod") {
+        const error = validateField(key, formData[key]);
+        if (error) {
+          newErrors[key] = error;
+        }
+      }
+    });
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === 'installmentPeriod') {
       console.log("Installment Period Input:", value, "Type:", typeof value);
     }
+    
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
+    
+    // Validate field on change (skip validation for downPayment, monthlyPayment, installmentPeriod)
+    if (name !== "downPayment" && name !== "monthlyPayment" && name !== "installmentPeriod") {
+      const error = validateField(name, value);
+      setErrors(prev => ({
+        ...prev,
+        [name]: error || undefined
+      }));
+    } else {
+      // Clear any existing errors for these fields
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate form before submission
+    if (!validateForm()) {
+      alert("Please fix the errors in the form before submitting.");
+      return;
+    }
     
     if (!formData.carId) {
       alert("Car ID is missing. Please try again.");
@@ -172,6 +278,7 @@ export default function AdminDashboard() {
       carListNo: "",
       carId: ""
     });
+    setErrors({});
   };
 
   const handleAddCarToInstallment = (car) => {
@@ -550,9 +657,14 @@ export default function AdminDashboard() {
                       value={formData.customerName}
                       onChange={handleInputChange}
                       placeholder="Full Name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      className={`w-full px-3 py-2 border rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.customerName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-red-500'
+                      }`}
                       required
                     />
+                    {errors.customerName && (
+                      <p className="mt-1 text-sm text-red-600">{errors.customerName}</p>
+                    )}
                   </div>
 
                   <div>
@@ -566,9 +678,14 @@ export default function AdminDashboard() {
                       value={formData.phoneNumber}
                       onChange={handleInputChange}
                       placeholder="e.g., +66-999-999"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      className={`w-full px-3 py-2 border rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.phoneNumber ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-red-500'
+                      }`}
                       required
                     />
+                    {errors.phoneNumber && (
+                      <p className="mt-1 text-sm text-red-600">{errors.phoneNumber}</p>
+                    )}
                   </div>
 
                   <div>
@@ -582,9 +699,14 @@ export default function AdminDashboard() {
                       value={formData.passportNumber}
                       onChange={handleInputChange}
                       placeholder="e.g., A12345678"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      className={`w-full px-3 py-2 border rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.passportNumber ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-red-500'
+                      }`}
                       required
                     />
+                    {errors.passportNumber && (
+                      <p className="mt-1 text-sm text-red-600">{errors.passportNumber}</p>
+                    )}
                   </div>
 
                   {/* <div>
@@ -622,14 +744,19 @@ export default function AdminDashboard() {
                       Down Payment
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       id="downPayment"
                       name="downPayment"
                       value={formData.downPayment}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          handleInputChange(e);
+                        }
+                      }}
                       placeholder="100000"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                      required
                     />
                   </div>
 
@@ -638,14 +765,19 @@ export default function AdminDashboard() {
                       Monthly Payment
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       id="monthlyPayment"
                       name="monthlyPayment"
                       value={formData.monthlyPayment}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          handleInputChange(e);
+                        }
+                      }}
                       placeholder="45000"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                      required
                     />
                   </div>
 
@@ -659,9 +791,15 @@ export default function AdminDashboard() {
                       name="purchasedDate"
                       value={formData.purchasedDate}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      max={new Date().toISOString().split('T')[0]}
+                      className={`w-full px-3 py-2 border rounded-md bg-gray-200 text-gray-800 focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.purchasedDate ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-red-500'
+                      }`}
                       required
                     />
+                    {errors.purchasedDate && (
+                      <p className="mt-1 text-sm text-red-600">{errors.purchasedDate}</p>
+                    )}
                   </div>
 
                   <div>
@@ -669,16 +807,19 @@ export default function AdminDashboard() {
                       Installment Period (Months)
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       id="installmentPeriod"
                       name="installmentPeriod"
                       value={formData.installmentPeriod}
-                      onChange={handleInputChange}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*$/.test(value)) {
+                          handleInputChange(e);
+                        }
+                      }}
                       placeholder="12"
-                      min="1"
-                      step="1"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                      required
                     />
                   </div>
 

@@ -460,14 +460,20 @@ export default function ProfitCalculator() {
                     Original Price *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="originalPrice"
                     name="originalPrice"
                     value={formData.originalPrice}
-                    onChange={handleInputChange}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     placeholder="Enter original price"
                     required
-                    className="w-full px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
 
@@ -494,12 +500,18 @@ export default function ProfitCalculator() {
                         className="flex-1 px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                       />
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         name="amount"
                         value={newExpense.amount}
-                        onChange={handleExpenseInputChange}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                            handleExpenseInputChange(e);
+                          }
+                        }}
                         placeholder="Amount"
-                        className="w-28 px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className="w-28 px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                       />
                       <button
                         type="button"
@@ -549,14 +561,20 @@ export default function ProfitCalculator() {
                     Sold Price *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="retailedPrice"
                     name="retailedPrice"
                     value={formData.retailedPrice}
-                    onChange={handleInputChange}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     placeholder="Enter sold price"
                     required
-                    className="w-full px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full px-4 py-3 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
 

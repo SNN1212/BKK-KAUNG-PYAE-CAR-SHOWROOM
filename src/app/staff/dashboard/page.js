@@ -14,7 +14,7 @@ export default function StaffDashboard() {
       try {
         // Try to fetch from API first
         if (API_BASE_URL) {
-          const response = await fetch(`${API_BASE_URL}/api/cars`, { cache: "no-store" });
+          const response = await fetch(`${API_BASE_URL}/api/public/cars`, { cache: "no-store" });
           const data = await response.json();
           const apiCars = Array.isArray(data.data) ? data.data : [];
 
@@ -32,7 +32,10 @@ export default function StaffDashboard() {
                 wd: car.wheelDrive,
               };
             });
-            setCars(normalizedCars);
+            
+            // Filter to show only available cars (same as admin dashboard logic)
+            const availableCars = normalizedCars.filter(car => car.isAvailable !== false);
+            setCars(availableCars);
             setLoading(false);
             return;
           }

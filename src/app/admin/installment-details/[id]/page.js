@@ -8,40 +8,148 @@ export default function InstallmentDetails() {
   const installmentId = params.id;
   
   const [installment, setInstallment] = useState(null);
+  const [car, setCar] = useState(null);
+  const [paymentSummary, setPaymentSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [paidMonths, setPaidMonths] = useState(new Set());
   const [ownerBookStatus, setOwnerBookStatus] = useState('pending'); // 'pending', 'ready', 'transferred'
-  
-  // Penalty fees for each month
-  const [penaltyFees, setPenaltyFees] = useState({});
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
-    // Load installment data from localStorage
-    const savedInstallments = localStorage.getItem('installments');
-    
-    if (savedInstallments) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const fetchInstallmentDetails = async () => {
+      if (!API_BASE_URL) {
+        console.warn("API base URL is not set. Cannot fetch installment details.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        const installments = JSON.parse(savedInstallments);
-        const foundInstallment = installments.find(inst => inst.id.toString() === installmentId);
+        setLoading(true);
         
-        if (foundInstallment) {
-          setInstallment(foundInstallment);
-          setLoading(false);
-        } else {
-          setInstallment(null);
-          setLoading(false);
+        // Get token from localStorage for authentication
+        const token = localStorage.getItem('token');
+        
+        const headers = {};
+        
+        // Add Authorization header if token exists
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
         }
+        
+        // Fetch installment details from API
+        const response = await fetch(`${API_BASE_URL}/api/car/${installmentId}/installment`, {
+          cache: "no-store",
+          headers: headers
+        });
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            alert("Unauthorized: Please login again.");
+            window.location.href = '/admin/login';
+            return;
+          }
+          if (response.status === 404) {
+            const errorData = await response.json().catch(() => ({}));
+            alert(errorData.message || "Car or installment not found");
+            setLoading(false);
+            return;
+          }
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+          const { car: carData, installment: installmentData, paymentSummary: summaryData } = data.data;
+          
+          // Set car and payment summary
+          setCar(carData);
+          setPaymentSummary(summaryData);
+          
+          // Normalize installment data for display
+          const buyer = installmentData.buyer || {};
+          const months = installmentData.months || 0;
+          
+          // Format start date
+          let formattedDate = "";
+          if (installmentData.startDate) {
+            try {
+              const date = new Date(installmentData.startDate);
+              formattedDate = date.toLocaleDateString('en-GB');
+            } catch (e) {
+              formattedDate = installmentData.startDate;
+            }
+          }
+          
+          // Calculate total price
+          const totalPrice = (installmentData.downPayment || 0) + (installmentData.remainingAmount || 0);
+          
+          const normalizedInstallment = {
+            id: installmentId,
+            customerName: buyer.name || "",
+            passportNumber: buyer.passport || "",
+            phoneNumber: buyer.phone || "",
+            email: buyer.email || "",
+            carPrice: totalPrice,
+            downPayment: installmentData.downPayment || 0,
+            monthlyPayment: installmentData.monthlyPayment || summaryData.monthlyPayment || 0,
+            installmentPeriod: months,
+            purchasedDate: formattedDate,
+            carModel: `${carData.brand || ''} ${carData.model || ''}`.trim(),
+            licensePlate: carData.licenseNo || "",
+            carListNo: carData.carList || "",
+            paymentHistory: installmentData.paymentHistory || []
+          };
+          
+          setInstallment(normalizedInstallment);
+          
+          // Set paid months based on payment history
+          const paidMonthsSet = new Set();
+          const paymentHistory = installmentData.paymentHistory || [];
+          
+          // Try to extract month numbers from paymentHistory if available
+          if (paymentHistory.length > 0 && paymentHistory[0].month !== undefined) {
+            // If paymentHistory has month field, use it
+            paymentHistory.forEach(payment => {
+              if (payment.month && payment.month <= months) {
+                paidMonthsSet.add(payment.month);
+              }
+            });
+          } else {
+            // Otherwise, calculate based on number of payments made
+            const paymentsCount = summaryData.paymentsMade || paymentHistory.length || 0;
+            for (let i = 1; i <= paymentsCount && i <= months; i++) {
+              paidMonthsSet.add(i);
+            }
+          }
+          
+          setPaidMonths(paidMonthsSet);
+          
+          // Set owner book status based on payment completion
+          if (summaryData.isFullyPaid) {
+            setOwnerBookStatus('ready');
+          } else if (summaryData.paymentProgress >= 100) {
+            setOwnerBookStatus('ready');
+          } else {
+            setOwnerBookStatus('pending');
+          }
+        }
+        
+        setLoading(false);
       } catch (error) {
-        console.error("Error parsing installments data:", error);
-        setInstallment(null);
+        console.error("Error loading installment details:", error);
+        alert(`Failed to load installment details: ${error.message}`);
         setLoading(false);
       }
-    } else {
-      setInstallment(null);
-      setLoading(false);
-    }
-  }, [installmentId]);
+    };
+
+    fetchInstallmentDetails();
+  }, [installmentId, API_BASE_URL]);
 
 
   const handleLogout = () => {
@@ -59,104 +167,7 @@ export default function InstallmentDetails() {
 
 
 
-  const handleCompletePayment = () => {
-    // Mark all months as paid
-    const allMonths = Array.from({ length: parseInt(installment.installmentPeriod) || 0 }, (_, index) => index + 1);
-    setPaidMonths(new Set(allMonths));
-    
-    // Update saved data with new payment status
-    const savedData = localStorage.getItem(`installment_${installmentId}`);
-    if (savedData) {
-      try {
-        const parsedData = JSON.parse(savedData);
-        parsedData.paidMonths = Array.from(allMonths);
-        localStorage.setItem(`installment_${installmentId}`, JSON.stringify(parsedData));
-      } catch (error) {
-        console.error("Error updating saved data:", error);
-      }
-    }
-  };
-
-  const handleOwnerBookTransfer = () => {
-    // Directly transfer without profit calculator
-    if (installment) {
-      // Update owner book status
-      setOwnerBookStatus('transferred');
-      
-      // Move car from installment list to sold list
-      const soldCarData = {
-        id: installment.id,
-        carList: installment.carListNo,
-        licenseNo: installment.licensePlate,
-        brand: installment.carModel ? installment.carModel.split(' ')[0] : 'Unknown',
-        model: installment.carModel ? installment.carModel.split(' ').slice(1).join(' ') : 'Unknown',
-        engine: 'N/A',
-        color: 'N/A',
-        wd: 'N/A',
-        gear: 'N/A',
-        price: installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A',
-        year: 'N/A',
-        purchasedKilo: 'N/A',
-        financeFee: 'N/A',
-        repairHistory: 'N/A',
-        carPhoto: '/admin.png',
-        soldDate: new Date().toLocaleDateString('en-GB'),
-        soldPrice: installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A',
-        customerName: installment.customerName,
-        phoneNumber: installment.phoneNumber,
-        passportNumber: installment.passportNumber,
-        transferCompleted: true,
-        transferDate: new Date().toLocaleDateString('en-GB')
-      };
-
-      // Add to sold cars list
-      const existingSoldCars = JSON.parse(localStorage.getItem('soldCars') || '[]');
-      const updatedSoldCars = [...existingSoldCars, soldCarData];
-      localStorage.setItem('soldCars', JSON.stringify(updatedSoldCars));
-
-      // Remove from installment list
-      const existingInstallments = JSON.parse(localStorage.getItem('installments') || '[]');
-      const updatedInstallments = existingInstallments.filter(inst => inst.id.toString() !== installmentId);
-      localStorage.setItem('installments', JSON.stringify(updatedInstallments));
-      
-      alert("Owner book transfer completed! Car has been moved to sold list.");
-      
-      // Redirect to sold list
-      window.location.href = '/admin/sold-list';
-    }
-  };
-
-  const handlePenaltyFeeChange = (monthNumber, value) => {
-    setPenaltyFees(prev => ({
-      ...prev,
-      [monthNumber]: parseFloat(value) || 0
-    }));
-  };
-
-  const handlePaymentClick = (monthNumber) => {
-    setPaidMonths(prev => {
-      const newPaidMonths = new Set(prev);
-      if (newPaidMonths.has(monthNumber)) {
-        newPaidMonths.delete(monthNumber); // Unmark as paid
-      } else {
-        newPaidMonths.add(monthNumber); // Mark as paid
-      }
-      
-      // Update saved data with new payment status
-      const savedData = localStorage.getItem(`installment_${installmentId}`);
-      if (savedData) {
-        try {
-          const parsedData = JSON.parse(savedData);
-          parsedData.paidMonths = Array.from(newPaidMonths);
-          localStorage.setItem(`installment_${installmentId}`, JSON.stringify(parsedData));
-        } catch (error) {
-          console.error("Error updating saved data:", error);
-        }
-      }
-      
-      return newPaidMonths;
-    });
-  };
+  // Note: This is a read-only details page - no payment modifications allowed
 
   if (loading) {
     return (
@@ -229,6 +240,12 @@ export default function InstallmentDetails() {
                     <p className="text-sm text-gray-300">Phone Number</p>
                     <p className="text-white text-lg font-medium">{installment.phoneNumber}</p>
                   </div>
+                  {installment.email && (
+                    <div>
+                      <p className="text-sm text-gray-300">Email</p>
+                      <p className="text-white text-lg font-medium">{installment.email}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -287,29 +304,43 @@ export default function InstallmentDetails() {
           {/* Summary Card */}
           <div className="bg-black/20 backdrop-blur-2xl shadow overflow-hidden sm:rounded-lg">
             <div className="px-4 py-5 sm:p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">Installment Summary</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <h3 className="text-lg font-semibold text-white mb-4">Payment Summary</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="text-center">
                   <p className="text-sm text-gray-300">Total Amount</p>
-                  <p className="text-white text-xl font-bold">{installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A'}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-300">Remaining Balance</p>
                   <p className="text-white text-xl font-bold">
-                    {installment.carPrice && installment.downPayment ? 
-                      `฿${(parseInt(installment.carPrice) - parseInt(installment.downPayment)).toLocaleString()}` : 
-                      'N/A'
-                    }
+                    {paymentSummary ? `฿${(paymentSummary.totalAmount || 0).toLocaleString()}` : 
+                     installment.carPrice ? `฿${parseInt(installment.carPrice).toLocaleString()}` : 'N/A'}
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-gray-300">Total Payments</p>
-                  <p className="text-white text-xl font-bold">
+                  <p className="text-sm text-gray-300">Paid Amount</p>
+                  <p className="text-green-400 text-xl font-bold">
+                    {paymentSummary ? `฿${(paymentSummary.paidAmount || 0).toLocaleString()}` : 'N/A'}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-300">Remaining Amount</p>
+                  <p className="text-yellow-400 text-xl font-bold">
                     {installment.monthlyPayment && installment.installmentPeriod ? 
-                      `฿${(parseInt(installment.monthlyPayment) * parseInt(installment.installmentPeriod)).toLocaleString()}` : 
-                      'N/A'
-                    }
+                      `฿${((parseInt(installment.monthlyPayment) || 0) * ((parseInt(installment.installmentPeriod) || 0) - paidMonths.size)).toLocaleString()}` : 
+                      paymentSummary ? `฿${(paymentSummary.remainingAmount || 0).toLocaleString()}` : 
+                      'N/A'}
                   </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-300">Payment Progress</p>
+                  <p className="text-white text-xl font-bold">
+                    {paymentSummary ? `${(paymentSummary.paymentProgress || 0).toFixed(1)}%` : 'N/A'}
+                  </p>
+                  {paymentSummary && (
+                    <div className="mt-2 w-full bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(paymentSummary.paymentProgress || 0, 100)}%` }}
+                      ></div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -320,32 +351,39 @@ export default function InstallmentDetails() {
             <div className="px-4 py-5 sm:p-6">
               <h3 className="text-lg font-semibold text-white mb-4">Payment Method</h3>
               
-              {/* Payment Schedule Display */}
+              {/* Payment Schedule Display - Read Only */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="text-md font-medium text-white">
                     Payment Schedule ({installment.installmentPeriod || 0} months)
                   </h4>
-                  <button
-                    onClick={handleCompletePayment}
-                    className="bg-black/20 backdrop-blur-md text-white px-4 py-2 rounded-md hover:bg-black/30 hover:text-red-500 font-medium cursor-pointer border border-white/30 transition-all duration-200"
-                  >
-                    Complete Payment
-                  </button>
+                  <span className="text-xs text-gray-400 italic">View Only</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {Array.from({ length: parseInt(installment.installmentPeriod) || 0 }, (_, index) => {
                       const monthNumber = index + 1;
                       const paymentAmount = parseInt(installment.monthlyPayment) || 0;
                       
-                      // Calculate due date from purchased date
+                      // Calculate due date from start date
                       const dueDate = new Date();
                       if (installment.purchasedDate) {
-                        // Convert purchased date string to Date object
-                        const [day, month, year] = installment.purchasedDate.split('/');
-                        dueDate.setDate(parseInt(day));
-                        dueDate.setMonth(parseInt(month) - 1); // Month is 0-indexed
-                        dueDate.setFullYear(parseInt(year));
+                        try {
+                          // Try parsing as ISO date first (from API)
+                          const parsedDate = new Date(installment.purchasedDate);
+                          if (!isNaN(parsedDate.getTime())) {
+                            dueDate.setTime(parsedDate.getTime());
+                          } else {
+                            // Fallback to DD/MM/YYYY format
+                            const [day, month, year] = installment.purchasedDate.split('/');
+                            if (day && month && year) {
+                              dueDate.setDate(parseInt(day));
+                              dueDate.setMonth(parseInt(month) - 1); // Month is 0-indexed
+                              dueDate.setFullYear(parseInt(year));
+                            }
+                          }
+                        } catch (e) {
+                          console.error("Error parsing date:", e);
+                        }
                       }
                       dueDate.setMonth(dueDate.getMonth() + monthNumber);
                       
@@ -354,25 +392,20 @@ export default function InstallmentDetails() {
                       return (
                         <div 
                           key={monthNumber} 
-                          className={`bg-black/30 rounded-lg p-4 border border-gray-600 transition-all duration-200 ${
-                            isPaid ? 'border-green-500 bg-green-900/20' : 'hover:border-gray-500'
+                          className={`bg-black/30 rounded-lg p-4 border transition-all duration-200 ${
+                            isPaid ? 'border-green-500 bg-green-900/20' : 'border-gray-600'
                           }`}
                         >
                           <div className="text-center">
                             <div className="flex items-center justify-center gap-2 mb-2">
                               <p className="text-sm text-gray-300">Month {monthNumber}</p>
-                              <button
-                                onClick={() => handlePaymentClick(monthNumber)}
-                                className="cursor-pointer"
-                              >
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  isPaid 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                  {isPaid ? 'Paid' : 'Pending'}
-                                </span>
-                              </button>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                isPaid 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {isPaid ? 'Paid' : 'Pending'}
+                              </span>
                             </div>
                             <p className="text-white text-lg font-bold mb-2">
                               ฿{paymentAmount.toLocaleString()}
@@ -380,20 +413,6 @@ export default function InstallmentDetails() {
                             <p className="text-xs text-gray-400 mb-2">
                               Due: {dueDate.toLocaleDateString('en-GB')}
                             </p>
-                            {!isPaid && (
-                              <div className="mt-2">
-                                <label className="block text-xs text-gray-300 mb-1">Penalty Fee (Overdue)</label>
-                                <input
-                                  type="number"
-                                  value={penaltyFees[monthNumber] || ''}
-                                  onChange={(e) => handlePenaltyFeeChange(monthNumber, e.target.value)}
-                                  placeholder="0"
-                                  min="0"
-                                  className="w-full px-2 py-1 text-sm border border-gray-500 rounded-md bg-black/30 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              </div>
-                            )}
                           </div>
                         </div>
                       );
@@ -402,23 +421,29 @@ export default function InstallmentDetails() {
                 
                 {/* Payment Summary */}
                 <div className="mt-6 p-4 bg-black/30 rounded-lg border border-gray-600">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="text-center">
                       <p className="text-sm text-gray-300">Monthly Payment</p>
                       <p className="text-white text-lg font-bold">
-                        ฿{(parseInt(installment.monthlyPayment) || 0).toLocaleString()}
+                        ฿{(paymentSummary?.monthlyPayment || parseInt(installment.monthlyPayment) || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm text-gray-300">Payments Made</p>
+                      <p className="text-white text-lg font-bold">
+                        {paymentSummary?.paymentsMade || paidMonths.size} / {installment.installmentPeriod || 0}
                       </p>
                     </div>
                     <div className="text-center">
                       <p className="text-sm text-gray-300">Paid Amount</p>
                       <p className="text-green-400 text-lg font-bold">
-                        ฿{((parseInt(installment.monthlyPayment) || 0) * paidMonths.size).toLocaleString()}
+                        ฿{(paymentSummary?.paidAmount || ((parseInt(installment.monthlyPayment) || 0) * paidMonths.size)).toLocaleString()}
                       </p>
                     </div>
                     <div className="text-center">
                       <p className="text-sm text-gray-300">Remaining</p>
                       <p className="text-yellow-400 text-lg font-bold">
-                        ฿{((parseInt(installment.monthlyPayment) || 0) * ((parseInt(installment.installmentPeriod) || 0) - paidMonths.size)).toLocaleString()}
+                        ฿{(paymentSummary?.remainingAmount || ((parseInt(installment.monthlyPayment) || 0) * ((parseInt(installment.installmentPeriod) || 0) - paidMonths.size))).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -426,6 +451,54 @@ export default function InstallmentDetails() {
               </div>
             </div>
           </div>
+
+          {/* Payment History Section */}
+          {installment.paymentHistory && installment.paymentHistory.length > 0 && (
+            <div className="bg-black/20 backdrop-blur-2xl shadow overflow-hidden sm:rounded-lg mb-6">
+              <div className="px-4 py-5 sm:p-6">
+                <h3 className="text-lg font-semibold text-white mb-4">Payment History</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-600">
+                    <thead className="bg-black/20 backdrop-blur-2xl">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-bold text-white uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold text-white uppercase tracking-wider">Amount</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold text-white uppercase tracking-wider">Month</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold text-white uppercase tracking-wider">Payment Method</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-black/10 backdrop-blur-2xl divide-y divide-gray-600">
+                      {installment.paymentHistory.map((payment, index) => {
+                        const paymentDate = payment.paymentDate || payment.date || payment.createdAt;
+                        let formattedDate = 'N/A';
+                        if (paymentDate) {
+                          try {
+                            formattedDate = new Date(paymentDate).toLocaleDateString('en-GB');
+                          } catch (e) {
+                            formattedDate = paymentDate;
+                          }
+                        }
+                        return (
+                          <tr key={index} className="hover:bg-black/30">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-white">{formattedDate}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-green-400 font-semibold">
+                              ฿{(payment.amount || 0).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-white">
+                              {payment.month ? `Month ${payment.month}` : 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-white">
+                              {payment.paymentMethod || payment.method || 'N/A'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Owner Book Status Section */}
           <div className="bg-black/20 backdrop-blur-2xl shadow overflow-hidden sm:rounded-lg">
@@ -452,15 +525,7 @@ export default function InstallmentDetails() {
                     </div>
                   </div>
                   
-                  {/* Transfer Button - Only show when all payments are complete */}
-                  {paidMonths.size === (parseInt(installment.installmentPeriod) || 0) && ownerBookStatus !== 'transferred' && (
-                                          <button
-                        onClick={handleOwnerBookTransfer}
-                        className="bg-black/20 backdrop-blur-md text-white px-4 py-2 rounded-md hover:bg-black/30 hover:text-red-500 font-medium cursor-pointer border border-white/30 transition-all duration-200"
-                      >
-                        Transfer Owner Book
-                      </button>
-                  )}
+                  {/* Read-only: Transfer functionality available in Edit page */}
                 </div>
 
                 {/* Status Information */}

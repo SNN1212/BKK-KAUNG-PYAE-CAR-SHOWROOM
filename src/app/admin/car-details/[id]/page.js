@@ -608,10 +608,16 @@ export default function CarDetails() {
                   Sold Price *
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   id="soldPrice"
                   value={soldPrice}
-                  onChange={(e) => setSoldPrice(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                      setSoldPrice(value);
+                    }
+                  }}
                   placeholder="Enter sold price"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   required
@@ -623,12 +629,17 @@ export default function CarDetails() {
                   Kilometer Reading at Sale (km) *
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   id="kiloAtSale"
                   value={kiloAtSale}
-                  onChange={(e) => setKiloAtSale(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || /^\d*$/.test(value)) {
+                      setKiloAtSale(value);
+                    }
+                  }}
                   placeholder="Enter kilometer reading"
-                  min="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-200 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   required
                 />

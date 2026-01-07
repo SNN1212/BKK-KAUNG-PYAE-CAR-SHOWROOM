@@ -169,9 +169,16 @@ export default function InstallmentCalculatorPage() {
                 <div>
                   <label className="block text-base sm:text-lg font-medium text-white mb-2 sm:mb-3">Car Value (฿)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={formData.carValue}
-                    onChange={(e) => setFormData({...formData, carValue: e.target.value})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only numbers and decimal point
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        setFormData({...formData, carValue: value});
+                      }
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-black text-sm sm:text-base"
                     placeholder="100000"
                     required
@@ -198,9 +205,16 @@ export default function InstallmentCalculatorPage() {
                 <div>
                   <label className="block text-base sm:text-lg font-medium text-white mb-2 sm:mb-3">Finance Fees (฿)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={formData.financeFees}
-                    onChange={(e) => setFormData({...formData, financeFees: e.target.value})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only numbers and decimal point
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        setFormData({...formData, financeFees: value});
+                      }
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-black text-sm sm:text-base"
                     placeholder="0"
                   />
@@ -230,9 +244,16 @@ export default function InstallmentCalculatorPage() {
                 <div>
                   <label className="block text-base sm:text-lg font-medium text-white mb-2 sm:mb-3">Down Payment Amount (฿)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={formData.downPaymentAmount}
-                    onChange={(e) => setFormData({...formData, downPaymentAmount: e.target.value})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only numbers and decimal point
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        setFormData({...formData, downPaymentAmount: value});
+                      }
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-black text-sm sm:text-base"
                     placeholder="50000"
                     required
@@ -242,10 +263,16 @@ export default function InstallmentCalculatorPage() {
                 <div>
                   <label className="block text-base sm:text-lg font-medium text-white mb-2 sm:mb-3">Interest Per Month (%)</label>
                   <input
-                    type="number"
-                    step="0.1"
+                    type="text"
+                    inputMode="numeric"
                     value={formData.interestPerMonth}
-                    onChange={(e) => setFormData({...formData, interestPerMonth: e.target.value})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only numbers and decimal point
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        setFormData({...formData, interestPerMonth: value});
+                      }
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-black text-sm sm:text-base"
                     placeholder="2.5"
                     required
@@ -255,9 +282,16 @@ export default function InstallmentCalculatorPage() {
                 <div>
                   <label className="block text-base sm:text-lg font-medium text-white mb-2 sm:mb-3">Installment Months</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={formData.installmentMonths}
-                    onChange={(e) => setFormData({...formData, installmentMonths: e.target.value})}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only numbers (no decimal for months)
+                      if (value === '' || /^\d*$/.test(value)) {
+                        setFormData({...formData, installmentMonths: value});
+                      }
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-black text-sm sm:text-base"
                     placeholder="48"
                     required

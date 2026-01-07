@@ -410,14 +410,18 @@ export default function AddCar() {
                     Selling Price (฿) *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="price"
                     name="price"
                     value={formData.price}
-                    onChange={handleInputChange}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     required
-                    min="0"
-                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 25000"
                   />
@@ -428,13 +432,17 @@ export default function AddCar() {
                     Original Price (฿)
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="originalPrice"
                     name="originalPrice"
                     value={formData.originalPrice}
-                    onChange={handleInputChange}
-                    min="0"
-                    step="1"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 20000"
                   />
@@ -477,14 +485,18 @@ export default function AddCar() {
                     Year *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="year"
                     name="year"
                     value={formData.year}
-                    onChange={handleInputChange}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     required
-                    min="1900"
-                    max="2030"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 2023"
                   />
@@ -495,14 +507,18 @@ export default function AddCar() {
                     Purchased Kilo (km) *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     id="purchasedKilo"
                     name="purchasedKilo"
                     value={formData.purchasedKilo}
-                    onChange={handleInputChange}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*$/.test(value)) {
+                        handleInputChange(e);
+                      }
+                    }}
                     required
-                    min="0"
-                    step="1"
                     className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     placeholder="e.g., 50000"
                   />
@@ -706,12 +722,16 @@ export default function AddCar() {
                         </div>
                         <div className="w-32">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="numeric"
                             placeholder="Amount (฿)"
                             value={item.amount}
-                            onChange={(e) => updateRepairHistory(index, 'amount', e.target.value)}
-                            min="0"
-                            step="0.01"
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                updateRepairHistory(index, 'amount', value);
+                              }
+                            }}
                             className="w-full px-3 py-2 border border-gray-600 rounded-md bg-black/30 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                           />
                         </div>

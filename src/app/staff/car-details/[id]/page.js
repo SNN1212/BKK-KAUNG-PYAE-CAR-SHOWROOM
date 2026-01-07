@@ -20,17 +20,45 @@ export default function StaffCarDetails() {
       try {
         // Try API first
         if (API_BASE_URL) {
-          const response = await fetch(`${API_BASE_URL}/api/car/${carId}`, { cache: "no-store" });
+          const response = await fetch(`${API_BASE_URL}/api/public/car/${carId}`, { cache: "no-store" });
           if (response.ok) {
             const data = await response.json();
-            const carData = data.data || data;
+            const apiCar = data.data || data;
+
+            console.log('apiCar', apiCar);
             
-            // Extract URL from image object array (always one object)
-            carData.carPhoto = carData.carPhoto?.[0]?.url || carData.photo?.[0]?.url || carData.carPhoto || carData.photo || null;
-            
-            setCar(carData);
-            setLoading(false);
-            return;
+            if (apiCar) {
+              // Handle carPhoto - extract URL from image object array (always one object)
+              const carPhotoUrl = apiCar.images?.[0]?.url || null;
+              
+              // Normalize the API response to match expected format (same as admin)
+              const normalizedCar = {
+                id: apiCar.id || apiCar._id || carId,
+                licenseNo: apiCar.licenseNo || apiCar.licensePlate || apiCar.license || "",
+                brand: apiCar.brand || apiCar.make || "",
+                model: apiCar.model || apiCar.name || "",
+                engine: apiCar.enginePower || apiCar.engine || "",
+                color: apiCar.color || "",
+                wd: apiCar.wheelDrive || apiCar.wd || "",
+                gear: apiCar.gear || apiCar.gearType || "",
+                price: apiCar.priceToSell 
+                  ? (typeof apiCar.priceToSell === 'number' 
+                      ? `฿${apiCar.priceToSell.toLocaleString()}` 
+                      : apiCar.priceToSell)
+                  : apiCar.price || "",
+                originalPrice: apiCar.originalPrice || apiCar.priceToBuy || apiCar.price || "",
+                year: apiCar.year || "",
+                purchasedKilo: apiCar.kilo || "",
+                repairHistory: apiCar.repairs || [],
+                carPhoto: carPhotoUrl,
+                carList: apiCar.carList || apiCar.carListNo || "",
+                sale: apiCar.sale || {}
+              };
+              
+              setCar(normalizedCar);
+              setLoading(false);
+              return;
+            }
           }
         }
 
@@ -81,11 +109,24 @@ export default function StaffCarDetails() {
     typeof car.carPhoto === "string" && car.carPhoto.trim().length > 0
       ? car.carPhoto
       : "/admin.png";
+  
+  // Debug info (same as admin)
+  const showDebugInfo = false; // Set to true for debugging
+
+  const parseCurrency = (value) => {
+    if (!value) return 0;
+    if (typeof value === "number") return value;
+    const parsed = parseFloat(value.toString().replace(/[^\d.-]/g, ""));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
 
   const formatCurrency = (value) => {
     if (value === null || value === undefined || value === "") return "N/A";
-    if (typeof value === "number") return `฿${value.toLocaleString()}`;
-    return value;
+    const numeric = parseCurrency(value);
+    if (numeric === 0) {
+      return "฿0";
+    }
+    return `฿${numeric.toLocaleString()}`;
   };
 
   return (
@@ -137,6 +178,11 @@ export default function StaffCarDetails() {
                       alt={`${car.brand || ""} ${car.model || ""}`}
                       className="w-full h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                     />
+                    {showDebugInfo && (
+                      <div className="text-xs text-gray-400 mt-2">
+                        Image source: {carPhotoSrc}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -171,7 +217,7 @@ export default function StaffCarDetails() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">Purchased Kilo</label>
-                        <p className="text-white text-lg font-semibold">{car.purchasedKilo || "N/A"} {car.purchasedKilo ? "km" : ""}</p>
+                        <p className="text-white text-lg font-semibold">{car.purchasedKilo || car.kilo || "N/A"} {car.purchasedKilo || car.kilo ? "km" : ""}</p>
                       </div>
                     </div>
                   </div>
@@ -207,11 +253,7 @@ export default function StaffCarDetails() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-1">Selling Price</label>
-                    <p className="text-white text-lg font-semibold">{formatCurrency(car.price || car.priceToSell)}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Finance Fee</label>
-                    <p className="text-white text-lg font-semibold">{car.financeFee || "N/A"}</p>
+                    <p className="text-white text-lg font-semibold">{formatCurrency(car.price)}</p>
                   </div>
                 </div>
               </div>
@@ -236,16 +278,43 @@ export default function StaffCarDetails() {
                         }
 
                         if (item && typeof item === "object") {
+                          // Handle API format: description, repairDate, cost (same as admin)
+                          const description = item.description || item.details || "";
+                          const cost = item.cost !== undefined ? item.cost : item.amount;
+                          const repairDate = item.repairDate;
+                          
+                          // Format date if present
+                          let formattedDate = null;
+                          if (repairDate) {
+                            try {
+                              const date = new Date(repairDate);
+                              formattedDate = date.toLocaleDateString('en-GB', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              });
+                            } catch (e) {
+                              formattedDate = repairDate;
+                            }
+                          }
+                          
                           return (
                             <div key={index} className="bg-black/30 border border-gray-600/50 rounded-md p-3">
-                              {item.details && (
-                                <p className="text-white text-base font-medium">{item.details}</p>
+                              {description && (
+                                <p className="text-white text-base font-medium">{description}</p>
                               )}
-                              {item.amount && (
-                                <p className="text-gray-300 text-sm mt-1">
-                                  Cost: ฿{parseFloat(item.amount).toLocaleString()}
-                                </p>
-                              )}
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 mt-2">
+                                {formattedDate && (
+                                  <p className="text-gray-400 text-sm">
+                                    Date: {formattedDate}
+                                  </p>
+                                )}
+                                {cost !== undefined && cost !== null && (
+                                  <p className="text-gray-300 text-sm">
+                                    Cost: ฿{parseFloat(cost).toLocaleString()}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           );
                         }
