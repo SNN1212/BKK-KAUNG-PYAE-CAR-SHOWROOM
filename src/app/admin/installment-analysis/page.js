@@ -5,8 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 
 export default function InstallmentAnalysis() {
   const [selectedPeriod, setSelectedPeriod] = useState("monthly"); // monthly | sixMonths | yearly
-  const [profitData, setProfitData] = useState({ monthly: [], sixMonths: [], yearly: [] });
-  const [totalProfit, setTotalProfit] = useState(0);
+  const [summary, setSummary] = useState({
+    totalGeneralProfit: 0,
+    totalDetailedProfit: 0,
+    totalPenaltyFees: 0,
+  });
   const [carsData, setCarsData] = useState([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -36,6 +39,8 @@ export default function InstallmentAnalysis() {
     // Backend report might use different date keys depending on implementation.
     // Try the common ones in order.
     const candidate =
+      car?.reportDate ??
+      car?.ownerBookTransfer?.transferDate ??
       car?.soldOutDate ??
       car?.soldDate ??
       car?.saleDate ??
@@ -73,7 +78,11 @@ export default function InstallmentAnalysis() {
 
   const normalizeReportCar = (car) => {
     // Make frontend tolerant to backend shape changes.
-    // Ensures charts + stats always receive numeric `profit` and `soldPrice`.
+    // New installment analysis API returns:
+    // - reportDate
+    // - soldPrice, contractValue
+    // - generalProfit, detailedProfit
+    // - paymentBreakdown (penaltyFeesTotal, etc.)
     const normalized = { ...(car || {}) };
 
     const derivedSoldPrice =
@@ -86,16 +95,36 @@ export default function InstallmentAnalysis() {
       car?.sale?.price ??
       null;
 
-    const derivedProfit =
-      car?.profit ??
-      car?.sale?.profit ??
-      car?.installment?.profit ??
+    const derivedContractValue =
+      car?.contractValue ??
+      car?.installment?.contractValue ??
       null;
 
     normalized.soldPrice = toNumber(derivedSoldPrice);
-    normalized.profit = toNumber(derivedProfit);
     normalized.purchasePrice = toNumber(car?.purchasePrice ?? car?.priceToBuy ?? car?.originalPrice ?? 0);
     normalized.totalRepairs = toNumber(car?.totalRepairs ?? car?.repairsTotal ?? car?.repairCostTotal ?? 0);
+    normalized.contractValue = toNumber(derivedContractValue);
+    normalized.paymentBreakdown = car?.paymentBreakdown || {};
+    normalized.reportDate = car?.reportDate ?? normalized.reportDate ?? null;
+    normalized.totalSales = toNumber(
+      car?.paymentBreakdown?.totalSales ??
+        car?.totalSales ??
+        normalized.totalSales ??
+        0
+    );
+
+    // Prefer backend numbers, but compute safe fallbacks for consistency.
+    const computedGeneralProfit =
+      toNumber(normalized.soldPrice) - toNumber(normalized.purchasePrice) - toNumber(normalized.totalRepairs);
+    const computedDetailedProfit =
+      (toNumber(normalized.contractValue) > 0 ? toNumber(normalized.contractValue) : toNumber(normalized.soldPrice)) -
+      toNumber(normalized.purchasePrice) -
+      toNumber(normalized.totalRepairs);
+
+    normalized.generalProfit =
+      Number.isFinite(toNumber(car?.generalProfit)) ? toNumber(car?.generalProfit) : computedGeneralProfit;
+    normalized.detailedProfit =
+      Number.isFinite(toNumber(car?.detailedProfit)) ? toNumber(car?.detailedProfit) : computedDetailedProfit;
 
     return normalized;
   };
@@ -124,7 +153,8 @@ export default function InstallmentAnalysis() {
         };
       }
 
-      grouped[key].profit += toNumber(car?.profit);
+      // Installment analysis should always use DETAILED profit (includes financing + penalties)
+      grouped[key].profit += toNumber(car?.detailedProfit);
       grouped[key].soldCars += 1;
       grouped[key].totalCars += 1;
     });
@@ -169,22 +199,27 @@ export default function InstallmentAnalysis() {
   };
 
   const getCurrentData = () => {
-    switch (selectedPeriod) {
-      case "monthly":
-        return profitData.monthly;
-      case "sixMonths":
-        return profitData.sixMonths;
-      case "yearly":
-        return profitData.yearly;
-      default:
-        return profitData.monthly;
-    }
+    const apiPeriod = selectedPeriod === "sixMonths" ? "6months" : selectedPeriod;
+    return groupDataByPeriod(carsData || [], apiPeriod);
   };
 
-  const getTotalProfit = () => (typeof totalProfit === "number" ? totalProfit : 0);
-  const getTotalCars = () => (typeof count === "number" && count > 0 ? count : carsData.length);
-  const getTotalSales = () =>
+  const getTotalCars = () => (typeof count === "number" && count > 0 ? count : (carsData || []).length);
+
+  const getTotalSoldPrice = () =>
     (carsData || []).reduce((total, car) => total + toNumber(car?.soldPrice), 0);
+
+  const getTotalContractValue = () =>
+    (carsData || []).reduce((total, car) => total + toNumber(car?.contractValue), 0);
+
+  const getTotalSales = () =>
+    (carsData || []).reduce((total, car) => total + toNumber(car?.totalSales), 0);
+
+  const getTotalProfit = () => {
+    const fromSummary = toNumber(summary.totalDetailedProfit);
+    if (fromSummary !== 0) return fromSummary;
+    // Fallback (in case backend didn't send summary for some reason)
+    return (carsData || []).reduce((sum, c) => sum + toNumber(c?.detailedProfit), 0);
+  };
 
   const exportToExcel = async () => {
     try {
@@ -197,13 +232,15 @@ export default function InstallmentAnalysis() {
       csvContent += `Generated,${new Date().toLocaleString()}\n\n`;
 
       csvContent += "SUMMARY\n";
-      csvContent += `Total Profit,฿${getTotalProfit().toLocaleString()}\n`;
+      csvContent += `Total Profit (Detailed),฿${toNumber(summary.totalDetailedProfit).toLocaleString()}\n`;
+      csvContent += `Total Penalty Fees,฿${toNumber(summary.totalPenaltyFees).toLocaleString()}\n`;
       csvContent += `Total Cars,${getTotalCars()}\n`;
+      csvContent += `Total Sold Price,฿${getTotalSoldPrice().toLocaleString()}\n`;
       csvContent += `Total Sales,฿${getTotalSales().toLocaleString()}\n`;
       csvContent += `Avg Profit/Car,฿${(getTotalCars() > 0 ? (getTotalProfit() / getTotalCars()) : 0).toLocaleString()}\n\n`;
 
       csvContent += "PERIOD BREAKDOWN\n";
-      csvContent += "Period,Profit,Cars Sold,Avg Profit\n";
+      csvContent += "Period,Detailed Profit,Cars Sold,Avg Profit\n";
       groupedData.forEach((item) => {
         const period = selectedPeriod === "yearly" ? item.year : item.month;
         const avgProfit = item.totalCars > 0 ? (item.profit / item.totalCars) : 0;
@@ -211,10 +248,10 @@ export default function InstallmentAnalysis() {
       });
 
       csvContent += "\nCAR DETAILS\n";
-      csvContent += "No,License No,Brand,Purchase Price,Sold Price,Total Repairs,Profit,Date\n";
+      csvContent += "No,License No,Brand,Purchase Price,Sold Price,Total,Total Repairs,Detailed Profit,Report Date\n";
       (carsData || []).forEach((car, idx) => {
         const dt = getReportDate(car);
-        csvContent += `${idx + 1},${car?.licenseNo || "N/A"},${car?.brand || "N/A"},฿${(car?.purchasePrice || 0).toLocaleString()},฿${(car?.soldPrice || 0).toLocaleString()},฿${(car?.totalRepairs || 0).toLocaleString()},฿${(car?.profit || 0).toLocaleString()},${formatDate(dt)}\n`;
+        csvContent += `${idx + 1},${car?.licenseNo || "N/A"},${car?.brand || "N/A"},฿${toNumber(car?.purchasePrice).toLocaleString()},฿${toNumber(car?.soldPrice).toLocaleString()},฿${toNumber(car?.totalSales).toLocaleString()},฿${toNumber(car?.totalRepairs).toLocaleString()},฿${toNumber(car?.detailedProfit).toLocaleString()},${formatDate(dt)}\n`;
       });
 
       const encodedUri = encodeURI(csvContent);
@@ -413,18 +450,20 @@ export default function InstallmentAnalysis() {
           const normalizedCars = (data.cars || []).map(normalizeReportCar);
           setCarsData(normalizedCars);
 
-          const derivedTotalProfit = toNumber(data.totalProfit);
-          const safeTotalProfit =
-            Number.isFinite(derivedTotalProfit) && derivedTotalProfit !== 0
-              ? derivedTotalProfit
-              : normalizedCars.reduce((sum, c) => sum + toNumber(c?.profit), 0);
-          setTotalProfit(safeTotalProfit);
+          const summaryFromApi = data?.summary || {};
+          const computedGeneralProfit = normalizedCars.reduce((sum, c) => sum + toNumber(c?.generalProfit), 0);
+          const computedDetailedProfit = normalizedCars.reduce((sum, c) => sum + toNumber(c?.detailedProfit), 0);
+          const computedPenaltyFees = normalizedCars.reduce(
+            (sum, c) => sum + toNumber(c?.paymentBreakdown?.penaltyFeesTotal),
+            0
+          );
+          setSummary({
+            totalGeneralProfit: toNumber(summaryFromApi.totalGeneralProfit) || computedGeneralProfit,
+            totalDetailedProfit: toNumber(summaryFromApi.totalDetailedProfit) || computedDetailedProfit,
+            totalPenaltyFees: toNumber(summaryFromApi.totalPenaltyFees) || computedPenaltyFees,
+          });
 
           setCount(typeof data.count === "number" ? data.count : normalizedCars.length);
-
-          const grouped = groupDataByPeriod(normalizedCars, apiPeriod);
-          const stateKey = period === "sixMonths" ? "sixMonths" : period;
-          setProfitData((prev) => ({ ...prev, [stateKey]: grouped }));
         }
 
         setLoading(false);
@@ -438,7 +477,7 @@ export default function InstallmentAnalysis() {
     fetchInstallmentProfit(selectedPeriod);
   }, [API_BASE_URL, selectedPeriod]);
 
-  const currentData = useMemo(() => getCurrentData(), [profitData, selectedPeriod]);
+  const currentData = useMemo(() => getCurrentData(), [carsData, selectedPeriod]);
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-no-repeat bg-fixed" style={{ backgroundImage: 'url(/View.png)' }}>
@@ -493,7 +532,12 @@ export default function InstallmentAnalysis() {
           ) : (
             <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4">
-                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">Installment Profit Analysis</h2>
+                <div>
+                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">Installment Profit Analysis</h2>
+                  <p className="text-white/70 text-sm mt-1">
+                    Total cars: <span className="text-white font-semibold">{getTotalCars()}</span>
+                  </p>
+                </div>
 
                 <div className="flex flex-col sm:flex-row gap-3">
                   {/* Export Buttons */}
@@ -541,11 +585,13 @@ export default function InstallmentAnalysis() {
                       Yearly
               </button>
                   </div>
+
+                  {/* Profit Mode Selection removed (always Detailed Profit) */}
             </div>
           </div>
 
-          {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+          {/* Stats Cards (from API summary) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
                 <div className="bg-black/20 backdrop-blur-2xl p-4 sm:p-6 rounded-lg shadow">
                   <div className="flex items-center">
                     <div className="flex-shrink-0">
@@ -557,7 +603,7 @@ export default function InstallmentAnalysis() {
                     </div>
                     <div className="ml-3 sm:ml-4">
                       <div className="text-sm sm:text-base font-medium text-gray-300">Total Profit</div>
-                      <div className="text-2xl sm:text-3xl font-semibold text-white">฿{getTotalProfit().toLocaleString()}</div>
+                      <div className="text-2xl sm:text-3xl font-semibold text-white">฿{toNumber(summary.totalDetailedProfit).toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
@@ -581,24 +627,6 @@ export default function InstallmentAnalysis() {
                 <div className="bg-black/20 backdrop-blur-2xl p-4 sm:p-6 rounded-lg shadow">
                   <div className="flex items-center">
                     <div className="flex-shrink-0">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-500 rounded-md flex items-center justify-center">
-                        <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="ml-3 sm:ml-4">
-                      <div className="text-sm sm:text-base font-medium text-gray-300">Avg Profit/Car</div>
-                      <div className="text-2xl sm:text-3xl font-semibold text-white">
-                        ฿{getTotalCars() > 0 ? (getTotalProfit() / getTotalCars()).toLocaleString() : "0"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-black/20 backdrop-blur-2xl p-4 sm:p-6 rounded-lg shadow">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
                       <div className="w-8 h-8 sm:w-10 sm:h-10 bg-yellow-500 rounded-md flex items-center justify-center">
                         <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -606,8 +634,8 @@ export default function InstallmentAnalysis() {
                       </div>
                     </div>
                     <div className="ml-3 sm:ml-4">
-                      <div className="text-sm sm:text-base font-medium text-gray-300">Total Sales</div>
-                      <div className="text-2xl sm:text-3xl font-semibold text-white">฿{getTotalSales().toLocaleString()}</div>
+                      <div className="text-sm sm:text-base font-medium text-gray-300">Total Penalty Fees</div>
+                      <div className="text-2xl sm:text-3xl font-semibold text-white">฿{toNumber(summary.totalPenaltyFees).toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
@@ -616,7 +644,8 @@ export default function InstallmentAnalysis() {
               {/* Profit Chart */}
               <div className="bg-black/20 backdrop-blur-2xl p-4 sm:p-6 rounded-lg shadow mb-6 sm:mb-8">
                 <h3 className="text-xl sm:text-2xl font-semibold text-white mb-4 sm:mb-6">
-                  Profit Trend - {selectedPeriod === "monthly" ? "Last 12 Months" : selectedPeriod === "sixMonths" ? "Last 6 Months" : "Last 5 Years"}
+                  Profit Trend -{" "}
+                  {selectedPeriod === "monthly" ? "Last 12 Months" : selectedPeriod === "sixMonths" ? "Last 6 Months" : "Last 5 Years"}
                 </h3>
                 <div className="h-64 sm:h-80 bg-gray-900/50 rounded-lg p-4">
                   <div className="flex items-end justify-between h-full space-x-2">
@@ -700,6 +729,7 @@ export default function InstallmentAnalysis() {
                           <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Brand</th>
                           <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Purchase</th>
                           <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Sold</th>
+                          <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Total</th>
                           <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Repairs</th>
                           <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-sm sm:text-base font-bold text-white uppercase tracking-wider">Profit</th>
                     </tr>
@@ -707,24 +737,25 @@ export default function InstallmentAnalysis() {
                   <tbody className="bg-black/10 backdrop-blur-2xl divide-y divide-gray-600">
                         {(carsData || []).length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="px-3 sm:px-6 py-6 text-center text-white">
+                            <td colSpan={8} className="px-3 sm:px-6 py-6 text-center text-white">
                               No cars in this period
                       </td>
                     </tr>
                         ) : (
                           (carsData || []).map((car, idx) => {
-                            const profit = Number(car?.profit) || 0;
+                            const detailed = toNumber(car?.detailedProfit);
                             return (
                               <tr key={car?.id || car?._id || idx} className="hover:bg-black/30 backdrop-blur-2xl">
                                 <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">{idx + 1}</td>
                                 <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">{car?.licenseNo || "N/A"}</td>
                                 <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">{car?.brand || "N/A"}</td>
-                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{(car?.purchasePrice || 0).toLocaleString()}</td>
-                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{(car?.soldPrice || 0).toLocaleString()}</td>
-                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{(car?.totalRepairs || 0).toLocaleString()}</td>
-                                <td className={`px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base font-semibold ${profit >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                  ฿{profit.toLocaleString()}
-                      </td>
+                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{toNumber(car?.purchasePrice).toLocaleString()}</td>
+                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{toNumber(car?.soldPrice).toLocaleString()}</td>
+                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{toNumber(car?.totalSales).toLocaleString()}</td>
+                                <td className="px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base text-white">฿{toNumber(car?.totalRepairs).toLocaleString()}</td>
+                                <td className={`px-3 sm:px-6 py-3 sm:py-5 whitespace-nowrap text-sm sm:text-base font-semibold ${detailed >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                  ฿{detailed.toLocaleString()}
+                                </td>
                     </tr>
                             );
                           })

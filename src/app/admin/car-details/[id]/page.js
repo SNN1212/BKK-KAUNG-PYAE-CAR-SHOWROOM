@@ -399,6 +399,7 @@ export default function CarDetails() {
                       src={carPhotoSrc} 
                       alt={`${car.brand} ${car.model}`}
                       className="w-full h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                      enableFullScreen={true}
                     />
                     {/* Debug info */}
                     <div className="text-xs text-gray-400 mt-2">
@@ -476,10 +477,6 @@ export default function CarDetails() {
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-1">Selling Price</label>
                       <p className="text-white text-lg font-semibold">{formatCurrency(car.price)}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-1">Finance Fee</label>
-                      <p className="text-white text-lg font-semibold">{formatCurrency(car.financeFee)}</p>
                     </div>
                   </div>
                 </div>
