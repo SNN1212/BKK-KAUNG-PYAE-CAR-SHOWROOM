@@ -588,6 +588,9 @@ export default function AnalysisPage() {
             <Link href="/admin/installment-analysis" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
               Installment Analysis
             </Link>
+            <Link href="/admin/money-manager" className="flex items-center px-2 sm:px-3 py-2 text-sm sm:text-base font-medium text-white hover:text-red-500 hover:border-red-500 border-b-2 border-transparent whitespace-nowrap flex-shrink-0">
+              Money Manager
+            </Link>
           </div>
         </div>
       </nav>
@@ -678,7 +681,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="ml-3 sm:ml-4">
                   <div className="text-sm sm:text-base font-medium text-gray-300">Total Profit</div>
-                  <div className="text-2xl sm:text-3xl font-semibold text-white">฿{getTotalProfit().toLocaleString()}</div>
+                  <div className="text-2xl sm:text-3xl font-semibold text-white font-numeric">฿{getTotalProfit().toLocaleString()}</div>
                 </div>
               </div>
             </div>
@@ -694,7 +697,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="ml-3 sm:ml-4">
                   <div className="text-sm sm:text-base font-medium text-gray-300">Sold Cars</div>
-                  <div className="text-2xl sm:text-3xl font-semibold text-white">{getTotalCars()}</div>
+                  <div className="text-2xl sm:text-3xl font-semibold text-white font-numeric">{getTotalCars()}</div>
                 </div>
               </div>
             </div>
@@ -710,7 +713,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="ml-3 sm:ml-4">
                   <div className="text-sm sm:text-base font-medium text-gray-300">Avg Profit/Car</div>
-                  <div className="text-2xl sm:text-3xl font-semibold text-white">
+                  <div className="text-2xl sm:text-3xl font-semibold text-white font-numeric">
                     ฿{getTotalCars() > 0 ? (getTotalProfit() / getTotalCars()).toLocaleString() : '0'}
                   </div>
                 </div>
@@ -728,7 +731,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="ml-3 sm:ml-4">
                   <div className="text-sm sm:text-base font-medium text-gray-300">Total Sales</div>
-                  <div className="text-2xl sm:text-3xl font-semibold text-white">฿{getTotalSales().toLocaleString()}</div>
+                  <div className="text-2xl sm:text-3xl font-semibold text-white font-numeric">฿{getTotalSales().toLocaleString()}</div>
                 </div>
               </div>
             </div>
@@ -756,7 +759,7 @@ export default function AnalysisPage() {
                         style={{ height: `${Math.max(height, 5)}%` }}
                         title={`${period}: ฿${item.profit.toLocaleString()}`}
                       ></div>
-                      <div className="text-xs text-gray-400 mt-2 text-center">
+                      <div className="text-xs text-gray-400 mt-2 text-center font-numeric">
                         ฿{item.profit > 1000 ? `${(item.profit/1000).toFixed(1)}k` : item.profit.toFixed(0)}
                       </div>
                     </div>
